@@ -1,0 +1,224 @@
+{
+  "completed": true,
+  "events": [
+    {
+      "elapsed_seconds": 0.03,
+      "kind": "SERVICES_STARTED",
+      "api_pid": 11904,
+      "worker_pid": 17288
+    },
+    {
+      "elapsed_seconds": 2.34,
+      "kind": "CAPTION",
+      "title": "AnimFlow｜可观测、可恢复的 AI 任务管线",
+      "text": "真实浏览器连续实录；字幕是说明层，所有任务状态均来自实际 API。"
+    },
+    {
+      "elapsed_seconds": 8.36,
+      "kind": "CAPTION",
+      "title": "运行方式｜API + 独立 Worker + SQLite",
+      "text": "模型负责动作规划，Pillow 渲染 GIF；GPU 只模拟逻辑预约，不代表真实显卡。"
+    },
+    {
+      "elapsed_seconds": 14.36,
+      "kind": "CAPTION",
+      "title": "01｜真实 DeepSeek 规划",
+      "text": "输入一句动画要求；调用模型产生结构化方案，并实际控制颜色和运动。"
+    },
+    {
+      "elapsed_seconds": 27.84,
+      "kind": "REAL_MODEL_SUCCESS",
+      "job_id": "513b4897a47842e299b37eb3e00901d6",
+      "model": "deepseek-flash",
+      "usage": {
+        "completion_tokens": 115,
+        "prompt_cache_hit_tokens": 384,
+        "prompt_tokens": 561,
+        "total_tokens": 676
+      },
+      "latency_ms": 1500
+    },
+    {
+      "elapsed_seconds": 27.84,
+      "kind": "CAPTION",
+      "title": "真实返回｜模型、延迟、token 和 request_id",
+      "text": "规划产物已经持久化；这些数值来自本次 DeepSeek 响应，不是模拟数据。"
+    },
+    {
+      "elapsed_seconds": 36.89,
+      "kind": "CAPTION",
+      "title": "真实产物｜JSON 方案 → Pillow → 36 帧 GIF",
+      "text": "光球运动和配色来自规划；不是通用文生视频，输出范围是有限运动原语。"
+    },
+    {
+      "elapsed_seconds": 45.56,
+      "kind": "ZIP_VERIFIED",
+      "files": [
+        "preview.gif",
+        "params.json",
+        "source_summary.json",
+        "README.txt"
+      ]
+    },
+    {
+      "elapsed_seconds": 45.58,
+      "kind": "CAPTION",
+      "title": "可交付产物｜ZIP 下载通过完整性检查",
+      "text": "已实际下载并验证 ZIP：preview.gif、params.json、source_summary.json、README.txt。"
+    },
+    {
+      "elapsed_seconds": 51.58,
+      "kind": "CAPTION",
+      "title": "02｜失败耗尽预算 → 人工重试",
+      "text": "再创建一个真实模型任务，仅在下游风格处理持续注入失败；每轮最多三次尝试。"
+    },
+    {
+      "elapsed_seconds": 65.0,
+      "kind": "CAPTION",
+      "title": "失败状态真实保留｜FAILED + BLOCKED",
+      "text": "风格处理三次失败后停止推进，下游 BLOCKED；成功的模型规划保持 SUCCEEDED。"
+    },
+    {
+      "elapsed_seconds": 77.06,
+      "kind": "CAPTION",
+      "title": "人工重试｜清除演示故障，保留历史",
+      "text": "重试只恢复失败/阻塞步骤；已经成功的规划应复用，而不是重新消耗模型 token。"
+    },
+    {
+      "elapsed_seconds": 86.41,
+      "kind": "REAL_PLAN_REUSED",
+      "job_id": "2c2ece5dfdaa4fd29b129d1d1c5f1f26",
+      "plan_attempts": 1,
+      "artifact_id": "064971bc74d64c378973e4fac8c158a0",
+      "usage": {
+        "completion_tokens": 112,
+        "prompt_cache_hit_tokens": 384,
+        "prompt_tokens": 564,
+        "total_tokens": 676
+      }
+    },
+    {
+      "elapsed_seconds": 86.41,
+      "kind": "CAPTION",
+      "title": "复用已验证｜plan_motion attempt = 1",
+      "text": "规划 artifact_id 和 request_id 不变；风格处理新增成功尝试，旧三次失败历史保留。"
+    },
+    {
+      "elapsed_seconds": 100.5,
+      "kind": "CAPTION",
+      "title": "03｜自动重试（切换离线 MOCK）",
+      "text": "下面专注恢复机制，避免重复模型消费；第一次风格处理失败后自动退避并重试。"
+    },
+    {
+      "elapsed_seconds": 114.89,
+      "kind": "AUTO_RETRY_VERIFIED",
+      "job_id": "a9a5516d0454401da75a731d80c63dca",
+      "attempt_states": [
+        "FAILED",
+        "SUCCEEDED"
+      ]
+    },
+    {
+      "elapsed_seconds": 114.89,
+      "kind": "CAPTION",
+      "title": "自动重试完成｜旧失败 + 新成功",
+      "text": "可以查询每次 attempt；成功上游没有重跑。模型模式明确显示 MOCK。"
+    },
+    {
+      "elapsed_seconds": 122.94,
+      "kind": "CAPTION",
+      "title": "04｜强制终止 Worker 后恢复",
+      "text": "提交慢任务，等 stylize_frames RUNNING 后，实际强杀本脚本启动的 Worker 进程树。"
+    },
+    {
+      "elapsed_seconds": 131.26,
+      "kind": "WORKER_HARD_KILLED",
+      "pid": 17288,
+      "job_id": "bac530f3eb53495e88a0199590347d04",
+      "exit_code": 1
+    },
+    {
+      "elapsed_seconds": 131.26,
+      "kind": "CAPTION",
+      "title": "实际执行 taskkill /F /T｜PID 17288",
+      "text": "Worker 已强制结束。API 仍可查询；短暂 RUNNING 属于租约尚未回收的状态。"
+    },
+    {
+      "elapsed_seconds": 136.26,
+      "kind": "WORKER_RESTARTED",
+      "pid": 28956
+    },
+    {
+      "elapsed_seconds": 136.26,
+      "kind": "CAPTION",
+      "title": "启动新的 Worker｜PID 28956",
+      "text": "新进程回收过期租约，记录 WORKER_LOST，再用新的 attempt 执行中断步骤。"
+    },
+    {
+      "elapsed_seconds": 148.94,
+      "kind": "CRASH_RECOVERY_VERIFIED",
+      "job_id": "bac530f3eb53495e88a0199590347d04",
+      "states": [
+        "WORKER_LOST",
+        "SUCCEEDED"
+      ],
+      "upstream_unchanged": true
+    },
+    {
+      "elapsed_seconds": 148.94,
+      "kind": "CAPTION",
+      "title": "恢复已验证｜WORKER_LOST → 新 attempt 成功",
+      "text": "上游尝试次数保持不变。执行语义是 at-least-once，单步中断会整步重跑。"
+    },
+    {
+      "elapsed_seconds": 163.0,
+      "kind": "CAPTION",
+      "title": "05｜两个任务争抢一个模拟 GPU 槽",
+      "text": "CPU 与 GPU 分池；等待 GPU 不消耗尝试。此处只演示数据库逻辑预约，不是真实 CUDA 隔离。"
+    },
+    {
+      "elapsed_seconds": 185.17,
+      "kind": "GPU_LOGICAL_MUTEX_VERIFIED",
+      "peak_holders": 1
+    },
+    {
+      "elapsed_seconds": 185.17,
+      "kind": "CAPTION",
+      "title": "逻辑预约验证｜GPU holder 峰值 = 1",
+      "text": "两个任务都已完成。真实显卡的隔离、显存和温度采集仍属于未实现范围。"
+    },
+    {
+      "elapsed_seconds": 191.91,
+      "kind": "CAPTION",
+      "title": "刷新后恢复｜状态、历史与产物来自持久化",
+      "text": "单机 SQLite · 步骤边界恢复 · 真实 DeepSeek 规划 + Pillow 渲染 · GPU 模拟预约。"
+    },
+    {
+      "elapsed_seconds": 198.92,
+      "kind": "RELOAD_VERIFIED",
+      "job_id": "6f810bb6f0bd47198cf8f9471660781b"
+    },
+    {
+      "elapsed_seconds": 198.92,
+      "kind": "CAPTION",
+      "title": "演示结束｜源码与测试证据",
+      "text": "github.com/tangfire/AnimFlow ｜ 75 项自动化测试；本视频连续实录，无语音旁白。"
+    },
+    {
+      "elapsed_seconds": 214.39,
+      "kind": "VIDEO_EXPORTED",
+      "path": "deliverables/AnimFlow-demo.mp4",
+      "bytes": 7244956
+    }
+  ],
+  "video_qa": {
+    "duration_seconds": 206.07999999999998,
+    "bytes": 7244956,
+    "codec": "h264",
+    "resolution": "1600x900",
+    "audio": "none",
+    "full_decode": "PASS",
+    "all_scenario_assertions": "PASS",
+    "recording_type": "uncut browser capture with Chinese explanatory overlay"
+  }
+}

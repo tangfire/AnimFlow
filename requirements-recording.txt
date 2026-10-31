@@ -1,0 +1,3 @@
+# Optional: browser video recording and H.264 conversion.
+-r requirements-browser.txt
+imageio-ffmpeg==0.6.0

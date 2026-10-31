@@ -84,6 +84,8 @@ pytest 和普通浏览器回归始终走离线 MOCK，不调用付费模型。�
 
 ## 五分钟演示
 
+自动录制带中文字幕的演示视频：[录制方式与边界](docs/video.md)。成片保存在本机 `deliverables/AnimFlow-demo.mp4`，不包含实际 Key。
+
 ```bash
 # 场景 A：硬杀恢复（约 30 秒，只结束脚本自己创建的进程）
 .venv\Scripts\python.exe scripts/crash_demo.py

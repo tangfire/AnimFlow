@@ -104,3 +104,12 @@
 - 第二次真实对照请求返回 bounce/橙色配色，1641ms、674 tokens，最终36帧GIF可解码；两次运行总应用用量1346 tokens。
 
 - 已验证实现提交：`6567937`（真实 DeepSeek 规划、渲染、75项测试与两次真实调用证据）。
+
+## 2026-11-01 用户授权录制可提交视频
+
+- 通过 Playwright 连续录制真实 Chromium；中文说明字幕独立覆盖层，不修改任务状态，不含旁白。
+- 模型两次真实调用（各676 tokens）；验证真实 GIF、ZIP、规划复用、自动重试、强杀恢复、GPU 逻辑预约及刷新。
+- H.264 MP4：206.08s、1600×900、7,244,956 bytes，完整解码通过，11个时间点画面抽查通过。
+- 脚本及依赖：scripts/record_video.py、requirements-recording.txt；本次实际运行 exit 0。
+- 本机交付：deliverables/AnimFlow-demo.mp4；资料清单和字幕提纲同目录；视频目录被忽略，不混入源码。
+- 证据：docs/evidence/video-2026-11-01.json。用户个人信息/工时/简历仍待本人补齐；未发邮件。

@@ -1,5 +1,6 @@
 # 运行时数据（数据库、产物、日志）不入库
 data/
+deliverables/
 *.db
 *.db-wal
 *.db-shm
