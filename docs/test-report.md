@@ -109,6 +109,7 @@ P0 全部有实测证据，无跳过、无 `xfail`。
 | `artifact_health` 显示 `valid` 但目录内 PNG 已被删 | 健康检查只验目录存在性 | 改为逐文件完整 SHA-256 校验 | `test_a11_*` |
 | FastAPI 把 `body` 当成 query 参数，POST 返回 422 | Pydantic 模型定义在 `create_app` 函数内，注解无法解析 | 模型提升到模块级 | `test_api.py` 6 项由失败转通过 |
 | 子进程 `NameError: Image` | `_stylize_image` 未导入 `PIL.Image` | 补导入 | 冒烟测试六步全绿 |
+| README 冷启动：`pip install -r requirements-dev.txt` 报 `UnicodeDecodeError: 'gbk'` | 中文 Windows 默认 locale 为 cp936，pip 解析 requirements 中的中文注释失败 | requirements 文件改为纯 ASCII 注释 | 新临时目录 + 全新 venv 冷启动通过 |
 
 ## 7. 已知限制（非缺陷，如实标注）
 

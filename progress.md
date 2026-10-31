@@ -38,9 +38,28 @@
 - `.venv/Scripts/python.exe -m pytest tests/ -q` → **38 passed in 97.54s**（2026-10-31）。
 - 阶段 2 提交：05f6580（阶段 0-1）。
 
+## 阶段 4（破坏性实验复核）✅
+- A01–A14 全部有实测证据，无跳过、无 xfail。证据：`docs/evidence/pytest-full-2026-10-31.txt`、
+  `docs/evidence/crash-demo-2026-10-31.txt`（硬杀恢复 2.07s，5 条断言全 PASS）。
+- 演示脚本实测通过：`scripts/crash_demo.py`（5 断言 PASS）、`scripts/demo.py`（四场景，GPU 峰值=1）。
+
+## 阶段 5（说明与交付）✅
+- README、SUBMISSION、docs/{architecture,decisions,test-report,demo-script,ai-usage,worklog}。
+- 展示 GIF `docs/assets/demo-neon-seed7.gif` 及生成说明。
+- 提交：`9161209`(阶段2-3)、`60c01d5`(交付文档)、`47ef20d`(cp936 修复)。
+
+## 冷启动发现并修复的缺陷
+- `pip install -r requirements-dev.txt` 在中文 Windows（cp936）下因 requirements 内中文注释报
+  `UnicodeDecodeError: 'gbk'`。修复：requirements 改为纯 ASCII 注释（`47ef20d`）。
+
+## 冷启动复验 ✅（2026-10-31）
+- 新临时目录克隆 `47ef20d` → 全新 venv → `pip install -r requirements-dev.txt`（exit 0）→
+  `pytest tests/ -q` → **38 passed in 98.92s**。
+- 按 README 启动 API+Worker → POST 任务（watercolor/seed=2026）→ 六步各 1 次尝试 SUCCEEDED、
+  health=valid → 下载 GIF 12 帧 256×256 可解码、ZIP 完整可解压。进程已清理。
+
 ## 待解决问题
 - 无。
 
 ## 下一步
-- scripts/demo.py、scripts/crash_demo.py；docs 六件套 + README + SUBMISSION；
-  README 冷启动；最终汇报。
+- 向用户汇报；个人信息/工时/token 待本人补充；公开仓库验证待本人在未登录浏览器确认。
