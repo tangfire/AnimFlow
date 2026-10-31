@@ -17,7 +17,8 @@ python -m venv .venv
 .venv/Scripts/python.exe -m pytest tests/ -q
 ```
 
-期望：`38 passed`。`-v` 可看每个用例名；完整输出可存档到 `docs/evidence/`。
+期望：`45 passed`（38 项原有 + 7 项正确性修复回归）。`-v` 可看每个用例名；
+完整输出可存档到 `docs/evidence/`。
 
 ## 2. 硬杀恢复（约 30 秒，A04/A09 的手工版）
 
@@ -49,8 +50,18 @@ stylize RUNNING，active_attempt=...（GPU 槽已预约）
 恢复耗时: 硬杀→WORKER_LOST = 2.07s
 ```
 
-要点：耗时约等于租约剩余时间 + 轮询延迟，**不是瞬时恢复**；成功上游 `extract_frames` 的
-`attempt_count` 保持 1（不重跑）；旧 attempt 目录保留为孤儿文件但不发布。
+要点：
+
+- **上表的 2.07s 只对 `crash_demo.py` 的内置短租约配置成立**（脚本内部设
+  `ANIMFLOW_LEASE_S=2`、`ANIMFLOW_POLL_S=0.2`、`ANIMFLOW_HEARTBEAT_S=0.5`）。
+  默认配置的租约是 10 秒，用默认配置演示时识别失联会更晚。
+- 恢复耗时受四件事影响：**硬杀时租约还剩多久**、新 Worker 何时启动、轮询间隔、
+  退避（`STEP_RETRY_SCHEDULED` 里的 `next_run_at`）。应分三段看，不是「2 秒全部恢复」：
+  1) **识别失联**：`ATTEMPT_WORKER_LOST` 出现（≈ 租约剩余 + 轮询延迟）；
+  2) **开始重试**：退避窗口后 `STEP_CLAIMED` 出现新 attempt（默认退避 1s 起）；
+  3) **任务最终完成**：新 attempt 把剩余步骤跑完。
+- 成功上游 `extract_frames` 的 `attempt_count` 保持 1（不重跑）；
+  旧 attempt 目录保留为孤儿文件但不发布。
 
 ## 3. 四个业务场景（约 1～2 分钟）
 
@@ -71,15 +82,20 @@ stylize RUNNING，active_attempt=...（GPU 槽已预约）
 
 ## 4. 看板手工操作（约 3 分钟）
 
-两个终端：
+两个终端（Windows PowerShell 命令，可直接复制；每条都在标注的终端里执行）：
 
-```bash
-# 终端 1：API
-.venv/Scripts/python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```powershell
+# 终端 1（API）—— 默认配置即可；若做短租约硬杀演示，与终端 2 保持同一套环境变量
+.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 
-# 终端 2：Worker
-.venv/Scripts/python.exe -m app.worker
+# 终端 2（Worker，短租约演示配置：租约 2s / 心跳 0.5s / 轮询 0.2s / 演示加速）
+$env:ANIMFLOW_LEASE_S="2"; $env:ANIMFLOW_HEARTBEAT_S="0.5"; $env:ANIMFLOW_POLL_S="0.2"; $env:ANIMFLOW_STEP_SPEED="8"
+.venv\Scripts\python.exe -m app.worker
 ```
+
+> 租约相关参数只有 Worker 使用；为了让「重启 Worker 后配置一致」一眼可核对，
+> 终端 1 也可以设置同一组变量（无害）。**不设置则使用默认租约 10s**，
+> 届时识别失联的时间会明显更长——这是设计行为，不是恢复失败。
 
 浏览器打开 `http://127.0.0.1:8000/`：
 
@@ -89,8 +105,27 @@ stylize RUNNING，active_attempt=...（GPU 槽已预约）
    保留 `?job_id=...` 刷新页面，历史与选择都能恢复。
 3. 点「GPU 争抢 ×2」→ 资源面板里 `gpu-0` 只有一个 holder，另一个任务显示 `WAIT GPU`；CPU 步骤照常推进。
 4. 下载 GIF 能播放、ZIP 能解压；「attempt 历史」能看到每次尝试与错误码。
-5. **硬杀实验（手工）**：`taskkill /F /T /PID <worker的pid>`（Worker 终端里打印过）→ 页面显示步骤仍 `RUNNING` 直到租约过期
-   → 另起 Worker → 时间线出现 `ATTEMPT_WORKER_LOST` → 新 attempt 接管 → 任务最终成功。
+5. **硬杀实验（手工）**：点「慢任务」预设，等 `stylize_frames` 进入 `RUNNING`，在**第三个 PowerShell**
+   里用 `taskkill` 结束终端 2 的 Worker 进程树（PID 用任务管理器或
+   `Get-Process python | Select-Object Id, StartTime` 核对，确保是你启动的那个）：
+
+   ```powershell
+   taskkill /F /T /PID <终端2的python PID>
+   ```
+
+   `Ctrl+C` 是优雅停止，**不属于强制终止实验**，不要用它替代 taskkill。
+   硬杀后页面上该步骤会短暂仍显示 `RUNNING`——这是租约未过期的正常表现。
+   然后在终端 2 **用与启动时相同的环境变量**重启 Worker：
+
+   ```powershell
+   $env:ANIMFLOW_LEASE_S="2"; $env:ANIMFLOW_HEARTBEAT_S="0.5"; $env:ANIMFLOW_POLL_S="0.2"; $env:ANIMFLOW_STEP_SPEED="8"
+   .venv\Scripts\python.exe -m app.worker
+   ```
+
+   观察时间线分三段推进：`ATTEMPT_WORKER_LOST`（**识别失联**，≈ 租约剩余 + 轮询延迟）
+   → 退避后 `STEP_CLAIMED` 出现新 attempt（**开始重试**，默认退避 1s 起）
+   → 新 attempt 完成剩余步骤（**任务最终完成**）。三段总和才是恢复总耗时，
+   不承诺固定秒数；短租约（2s）配置下通常几秒内完成，默认 10s 租约则识别失联更晚。
 
 ## 5. 边界演示
 
@@ -115,13 +150,23 @@ curl http://127.0.0.1:8000/api/artifacts/nope/download   # 404
 
 ### 开场前准备（不录或快进，约 1 分钟）
 
-```bash
+两终端都用 PowerShell；**短租约演示配置必须两边一致**，且第 6 段重启 Worker 时
+在终端 2 重复设置同一组变量（环境变量不跨新窗口持久）：
+
+```powershell
 # 终端 1（API）
+$env:ANIMFLOW_LEASE_S="2"; $env:ANIMFLOW_HEARTBEAT_S="0.5"; $env:ANIMFLOW_POLL_S="0.2"; $env:ANIMFLOW_STEP_SPEED="8"
 .venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
-# 终端 2（Worker，稍后硬杀用它）
+
+# 终端 2（Worker，稍后用 taskkill 硬杀它）
+$env:ANIMFLOW_LEASE_S="2"; $env:ANIMFLOW_HEARTBEAT_S="0.5"; $env:ANIMFLOW_POLL_S="0.2"; $env:ANIMFLOW_STEP_SPEED="8"
 .venv\Scripts\python.exe -m app.worker
+
 # 浏览器打开 http://127.0.0.1:8000/
 ```
+
+> 这套 2 秒租约只为录制时长服务；默认租约是 10 秒，不设变量即为默认。
+> 录制中引用的「几秒内识别失联」只对该短租约配置成立，讲解时说明配置即可。
 
 ### 第 1 段 · 架构开场（约 30 秒）
 
@@ -167,14 +212,28 @@ curl http://127.0.0.1:8000/api/artifacts/nope/download   # 404
 
 ### 第 6 段 · 硬杀恢复（约 60 秒，核心卖点）
 
-- **操作**：点预设「慢任务」→ 等 stylize_frames 进入 RUNNING → 切到终端 2，
-  `Ctrl+C` 无效则直接关掉窗口也可以，但推荐用命令硬杀：
-  在**第三个终端**执行 `taskkill /F /T /PID <终端2的python PID>`（或任务管理器结束该进程树）
-  → 回到页面观察 → 再在终端 2 重新启动 `.venv\Scripts\python.exe -m app.worker` → 等任务成功。
-- **预期画面**：硬杀后页面上该步骤短暂仍显示 RUNNING（租约未过期，这正是设计）；
-  新 Worker 启动后几秒内，事件时间线出现 ATTEMPT_WORKER_LOST 与 STEP_RETRY_SCHEDULED，
-  attempt 历史出现 #2 RUNNING → SUCCEEDED，任务最终 SUCCEEDED；旧 #1 标记 WORKER_LOST。
-  实测恢复耗时约 2 秒（= 租约剩余 + 轮询延迟）。
+- **操作**：点预设「慢任务」→ 等 stylize_frames 进入 RUNNING → 打开**第三个 PowerShell**，
+  先核对 PID（任务管理器，或 `Get-Process python | Select Id, StartTime`，确认是终端 2 那个），
+  然后**强制终止**（`Ctrl+C` 是优雅停止，不属于强制终止实验，不要用它替代）：
+
+  ```powershell
+  taskkill /F /T /PID <终端2的python PID>
+  ```
+
+  → 回到页面观察 → 在终端 2 **用与开场相同的环境变量**重启 Worker：
+
+  ```powershell
+  $env:ANIMFLOW_LEASE_S="2"; $env:ANIMFLOW_HEARTBEAT_S="0.5"; $env:ANIMFLOW_POLL_S="0.2"; $env:ANIMFLOW_STEP_SPEED="8"
+  .venv\Scripts\python.exe -m app.worker
+  ```
+
+  → 等任务成功。
+- **预期画面**：硬杀后页面上该步骤短暂仍显示 RUNNING（租约未过期，这正是设计）。
+  之后时间线按三段推进，讲解时逐段指认：
+  1) **识别失联**：`ATTEMPT_WORKER_LOST` 出现（本配置下 ≈ 租约剩余 + 轮询延迟，秒级）；
+  2) **开始重试**：`STEP_RETRY_SCHEDULED` 显示退避（本配置 1s 起），随后 `STEP_CLAIMED` 出现 #2；
+  3) **任务最终完成**：#2 跑完 stylize 及剩余步骤，任务 SUCCEEDED；旧 #1 标记 WORKER_LOST。
+  三段总和才是恢复总耗时，不承诺固定秒数；若用默认 10 秒租约演示，第 1 段会明显更长。
 - **讲解要点**：「监督进程死了租约才过期，由下一个 Worker 回收——at-least-once，不是 exactly-once；
   计算可能重做，但只有当前有效 attempt 能发布结果，旧 attempt 的心跳/提交/释放全被拒绝。
   恢复是步骤边界级：这一步整步重跑，没有分帧断点续算。」

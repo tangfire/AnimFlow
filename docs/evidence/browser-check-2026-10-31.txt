@@ -1,25 +1,34 @@
 AnimFlow 浏览器实测记录（真实 headless Chromium，Playwright 驱动）
-日期: 2026-10-31  环境: Windows 11 / Chromium (playwright) / API+Worker 独立进程
-验证脚本: 一次性脚本（未入库），驱动真实页面点击与 DOM/状态断言
+日期: 2026-10-31（首次）/ 2026-11-01（入库脚本复跑）
+环境: Windows 11 / Chromium (playwright 1.64.1) / API+Worker 独立子进程（脚本自启自清）
 
+运行方式（可复现，仓库内脚本）:
+  .venv\Scripts\python.exe -m pip install -r requirements-browser.txt
+  .venv\Scripts\python.exe -m playwright install chromium
+  .venv\Scripts\python.exe scripts\browser_check.py
+
+--- 2026-11-01 scripts/browser_check.py 实际输出 ---
+[启动] API http://127.0.0.1:56615 (pid=39444)  Worker (pid=1388)
 [PASS] 任务最终 SUCCEEDED（含一次自动重试） 已完成 6/6 步
 [PASS] GIF 预览在页面内且解码成功 naturalWidth x Height = [256, 256]
 [PASS] ZIP 下载可用且为合法 zip ['preview.gif', 'params.json', 'source_summary.json', 'README.txt']
 [PASS] 永久失败任务到 FAILED
 [PASS] FAILED 时人工重试按钮可见
-[PASS] 人工重试后成功且 stylize 历史保留 stylize attempts: [(1,'FAILED'),(2,'FAILED'),(3,'FAILED'),(4,'SUCCEEDED')]
+[PASS] 人工重试后成功且 stylize 历史保留 stylize attempts: [(1, 'FAILED'), (2, 'FAILED'), (3, 'FAILED'), (4, 'SUCCEEDED')]
 [PASS] 切换后 state 选中 j1
-[PASS] 事件列表全部属于 j1 与 j2 不相交（不串台） 渲染 8 条，j1 共 8 条，越界 0 条，与 j2 交集 0 条
+[PASS] 事件列表全部属于 j1 且与 j2 不相交（不串台） 渲染 8 条，j1 共 8 条，越界 0 条，与 j2 交集 0 条
 [PASS] DOM 事件行数与 state 一致 dom=8 state=8
 [PASS] attempt 表只含选中任务 j1 的记录 dom=6 api=6
-[PASS] 切到 j2 后事件全部属于 j2 与 j1 完全不相交 渲染 14 条，j2 共 14 条，越界 0 条，与 j1 交集 0 条
+[PASS] 切到 j2 后事件全部属于 j2 且与 j1 完全不相交 渲染 14 条，j2 共 14 条，越界 0 条，与 j1 交集 0 条
+[清理] 已结束本脚本创建的 API/Worker 进程。
 
 ===== 浏览器实测: 11/11 PASS =====
 
 说明:
 - 快速切换测试: 以 ~120ms 间隔在两个 slow-stylize 任务间交替点击 10 次后停在其中一个，
-  等待 2.5s（覆盖轮询周期）再断言；两次检查均要求渲染事件集合与另一任务事件 id 集合
+  等待 2.5s（覆盖轮询周期）再断言；检查要求渲染事件集合与另一任务事件 id 集合
   交集为 0（事件 id 全局自增、每任务唯一，可精确判串台）。
-- 首轮运行时验证脚本自身用了过期基准（把 j2 合法新增事件误判为串台），
-  修正为渲染后取新鲜基准后通过；应用侧同时补了 jobToken 防护（见提交记录）。
-- 截图（临时目录，未入库）: animflow-shot-1-gif.png / -2-retry.png / -3-switch.png
+- 首轮（2026-10-31，一次性验证脚本，未入库）曾因验证脚本自身使用过期基准
+  （把 j2 合法新增事件误判为串台）出现 1 项 FAIL；修正为渲染后取新鲜基准后 11/11。
+  应用侧同时补了 jobToken 防护。上表为入库后 scripts/browser_check.py 的复跑结果。
+- Playwright 为可选依赖（requirements-browser.txt），普通启动与 pytest 不需要它。

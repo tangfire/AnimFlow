@@ -31,7 +31,9 @@ API 只做入队与查询，不在请求里计算；Worker 独立进程监督执
 硬杀恢复实测证据：[docs/evidence/crash-demo-2026-10-31.txt](docs/evidence/crash-demo-2026-10-31.txt)。
 时间线：上游成功 → stylize attempt#1 RUNNING（已预约 GPU）→ `taskkill /F /T` 硬杀 Worker →
 租约过期 → attempt#1 `WORKER_LOST` → attempt#2 领取并 `SUCCEEDED` → 任务 `SUCCEEDED`；
-恢复耗时 2.07s（= 租约剩余 + 轮询延迟，非瞬时）；**成功上游 `extract_frames` 的 attempt 数保持 1，未重跑**；
+识别失联耗时 2.07s（crash_demo 短租约 2s 配置下的实测值，仅覆盖「识别失联」一段；
+「开始重试」另加退避、「任务最终完成」另加剩余步骤时间；默认租约 10s 时识别更晚，非瞬时恢复）；
+**成功上游 `extract_frames` 的 attempt 数保持 1，未重跑**；
 旧 attempt 的心跳/提交/释放一律被拒（`tests/test_state_machine.py::test_a05_*`）。
 
 文件与数据库双写间隙：产物先原子落盘并校验，发布在受租约保护的事务中；「文件写完但事务未提交」
@@ -86,7 +88,9 @@ Token 主要花费：无法分类统计；主观认为在状态机事务与故�
 `create_job`。当时现象：`always_fail` 等场景的任务竟然直接成功，相关测试超时。根因：`create_job`
 没有拆分内嵌的 `demo_fault`，它被当作未知业务参数丢弃，Worker 收到的故障配置恒为空。
 修复：`create_job` 自动拆出内嵌 `demo_fault`，且不计入业务指纹（`input_hash`）。
-验证：此前 5 个失败的集成测试（A06/A09/A11/A14 相关）修复后全部通过，全量 38 项通过。
+验证：此前 5 个失败的集成测试（A06/A09/A11/A14 相关）修复后全部通过，
+全量 38 项通过（**当时结果**；其后外部复核又发现 3 个问题并补 7 项回归，现为 45 项全通过，
+见 [docs/test-report.md](docs/test-report.md) §2/§3.1）。
 
 真实经历二：**人工重试的失败原因丢失**。触发条件：损坏上游产物后调用 retry。
 当时现象：接口返回 409，但 `fatal_error_code` 为 `None`，事件里没有 `ARTIFACT_INVALID`。

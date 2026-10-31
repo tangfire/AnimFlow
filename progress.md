@@ -72,6 +72,17 @@
 - 文档同步：test-report（45 项/新缺陷/浏览器节）、decisions D10/D11、README 双输入格式、
   demo-script §6 录制脚本。
 
+## 交付收尾 ✅（2026-11-01）
+- 验收数字同步：README / demo-script 第 1 节改为 45（标注 38+7 构成）；
+  SUBMISSION 的 38 项明确标为「当时结果」；历史证据文件未替换。
+- 恢复时间描述修正：demo-script §2/§4/§6 与 test-report/SUBMISSION 区分
+  「识别失联 / 开始重试 / 任务最终完成」三段；2.07s 明确只对 crash_demo
+  短租约（2s）配置的识别失联段成立；录制/手工实验给出 PowerShell 双终端
+  一致环境变量与重启命令；硬杀明确 taskkill，Ctrl+C 属优雅停止不作替代。
+- 浏览器验证入库：`scripts/browser_check.py`（自启 API/Worker、只清理自己的进程、
+  11 项 DOM/状态断言）+ 可选 `requirements-browser.txt`（playwright==1.64.1，
+  不影响普通启动）；实跑 11/11 PASS，证据更新并保留首轮历史说明。
+
 ## 待解决问题
 - 无。
 

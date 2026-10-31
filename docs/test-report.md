@@ -95,7 +95,9 @@ P0 全部有实测证据，无跳过、无 `xfail`。
 - `[PASS]` 最终任务 `SUCCEEDED`
 - `[PASS]` GPU 槽已释放（`holder_attempt_id` 全为 NULL）
 - 上游 `extract_frames` 的 `attempt_count` 仍为 1（成功上游未重跑）
-- **恢复耗时：硬杀 → `WORKER_LOST` = 2.07s**（= 租约剩余 + 轮询/处理延迟；租约 2s、轮询 0.2s，非瞬时恢复）
+- **识别失联耗时：硬杀 → `WORKER_LOST` = 2.07s**（crash_demo 内置短租约配置：租约 2s、轮询 0.2s；
+  仅对该配置成立——默认租约 10s 时更长。这只覆盖「识别失联」一段，
+  「开始重试」还要加退避、「任务最终完成」还要加剩余步骤执行时间）
 
 ## 5. 手工演示（`scripts/demo.py`）
 
@@ -110,8 +112,18 @@ P0 全部有实测证据，无跳过、无 `xfail`。
 
 ## 5A. 浏览器实测（真实 headless Chromium，11/11 PASS）
 
-证据：`docs/evidence/browser-check-2026-10-31.txt`。用 Playwright 驱动真实 Chromium 打开看板页面，
+证据：`docs/evidence/browser-check-2026-10-31.txt`。仓库内脚本 `scripts/browser_check.py`
+用 Playwright 驱动真实 Chromium 打开看板页面，自启 API/Worker、结束时只清理自己的进程，
 实际点击预设按钮与重试按钮，断言 DOM 与页面内状态（非只看 API）：
+
+```powershell
+# 可选依赖（普通启动与 pytest 不需要）
+.venv\Scripts\python.exe -m pip install -r requirements-browser.txt
+.venv\Scripts\python.exe -m playwright install chromium
+.venv\Scripts\python.exe scripts\browser_check.py     # 约 2 分钟，退出码 0 = 全部通过
+```
+
+入库脚本实跑结果（2026-11-01）：**11/11 PASS**：
 
 | 检查项 | 结果 |
 | --- | --- |

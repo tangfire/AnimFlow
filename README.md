@@ -62,9 +62,18 @@ python -m venv .venv
 .venv\Scripts\python.exe -m pytest tests/ -q
 ```
 
-实测：**38 passed in ~96s**（2026-10-31，Windows 11 / Python 3.12.4 / SQLite 3.45.3）。
+实测：**45 passed in ~98s**（2026-10-31，Windows 11 / Python 3.12.4 / SQLite 3.45.3；
+其中 38 项为修复轮之前的原有套件，7 项为外部复核问题的回归用例）。
 覆盖 A01–A14 全部 P0 验收项，含真实跨进程硬杀恢复与失效窗口测试。
 证据与逐项对照见 [docs/test-report.md](docs/test-report.md)。
+
+可选：真实浏览器验证（普通启动与 pytest 不需要；约 2 分钟，11 项断言）：
+
+```powershell
+.venv\Scripts\python.exe -m pip install -r requirements-browser.txt
+.venv\Scripts\python.exe -m playwright install chromium
+.venv\Scripts\python.exe scripts\browser_check.py    # 自启 API/Worker，结束只清理自己的进程
+```
 
 ## 五分钟演示
 
