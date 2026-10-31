@@ -1,0 +1,35 @@
+任务 5bd7f332 已入库（此时无 Worker）
+[Worker-1] pid=32576
+stylize RUNNING，active_attempt=1c7c2406（GPU 槽已预约）
+硬杀 Worker-1（taskkill /F /T，只杀本脚本创建的 pid）…
+硬杀后瞬间: attempt 状态=RUNNING（租约 1s 后过期）
+[Worker-2] pid=32288（另一进程，接手恢复）
+
+===== 恢复时间线（全部来自数据库实测）=====
+  18:31:27 JOB_CREATED            {"fault_types": ["slow"], "params": {"fps": 25, "frame_count": 12, "height": 256, "seed": 
+  18:31:27 STEP_CLAIMED           {"attempt_no": 1, "resource": "cpu", "retry_round": 0, "slot": "cpu-0", "step": "inspect_a
+  18:31:27 STEP_SUCCEEDED         {"artifacts": ["params"], "attempt_no": 1, "fingerprint": "42bebdbc1290d3b8764141e9d80f16a
+  18:31:27 STEP_CLAIMED           {"attempt_no": 1, "resource": "cpu", "retry_round": 0, "slot": "cpu-0", "step": "extract_f
+  18:31:27 STEP_CLAIMED           {"attempt_no": 1, "resource": "cpu", "retry_round": 0, "slot": "cpu-1", "step": "plan_moti
+  18:31:27 STEP_SUCCEEDED         {"artifacts": ["motion_plan"], "attempt_no": 1, "fingerprint": "c39bc31802429ee1e303cb7428
+  18:31:28 STEP_SUCCEEDED         {"artifacts": ["frames"], "attempt_no": 1, "fingerprint": "0c9d0aaeb34c684724bedd3409b2e2c
+  18:31:28 STEP_CLAIMED           {"attempt_no": 1, "resource": "gpu", "retry_round": 0, "slot": "gpu-0", "step": "stylize_f
+  18:31:30 ATTEMPT_WORKER_LOST    {"attempt_no": 1, "lease_expires_at": 1793442690.4972045, "owner": "DESKTOP-30238IF-26280- ◀ 硬杀发生在这之前
+  18:31:30 STEP_RETRY_SCHEDULED   {"attempt_no": 1, "error_code": "WORKER_LOST", "next_run_at": 1793442691.5097754, "step": 
+  18:31:31 STEP_CLAIMED           {"attempt_no": 2, "resource": "gpu", "retry_round": 0, "slot": "gpu-0", "step": "stylize_f
+  18:31:40 STEP_SUCCEEDED         {"artifacts": ["styled_frames"], "attempt_no": 2, "fingerprint": "cae29b0f062478146f0457c4
+  18:31:40 STEP_CLAIMED           {"attempt_no": 1, "resource": "cpu", "retry_round": 0, "slot": "cpu-0", "step": "render_pr
+  18:31:40 STEP_SUCCEEDED         {"artifacts": ["preview_gif"], "attempt_no": 1, "fingerprint": "6d330ba8eb40b844acd140f333
+  18:31:40 STEP_CLAIMED           {"attempt_no": 1, "resource": "cpu", "retry_round": 0, "slot": "cpu-0", "step": "package_a
+  18:31:40 STEP_SUCCEEDED         {"artifacts": ["final_zip"], "attempt_no": 1, "fingerprint": "2937f92a46501fb0eb6d52dbd8c5
+  18:31:40 JOB_SUCCEEDED          {}
+===== 断言 =====
+  [PASS] 旧 attempt = WORKER_LOST
+  [PASS] 新 attempt_id 不同
+  [PASS] 新 attempt 成功
+  [PASS] 最终任务 SUCCEEDED
+  [PASS] GPU 槽已释放
+  上游 extract_frames: attempts=1（成功上游未重跑）
+
+恢复耗时: 硬杀@18:31:28 → WORKER_LOST@18:31:30 = 2.07s（= 租约剩余 + 轮询/处理延迟，非瞬时）
+说明：这是 at-least-once 语义 + 步骤边界恢复；旧目录文件保留为孤儿，不发布。
