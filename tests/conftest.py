@@ -34,6 +34,24 @@ class FakeClock:
         return self.t
 
 
+class SeqClock:
+    """按调用次序返回时间：前 len(prefix) 次取 prefix，之后返回 default。
+
+    用于复现「方法入口取时 → 文件校验/等写锁 → 事务内校验」之间的时间流逝：
+    入口时租约仍有效，进入事务时租约已过期。
+    """
+
+    def __init__(self, prefix: list[float], default: float):
+        self.prefix = list(prefix)
+        self.default = default
+        self.calls = 0
+
+    def __call__(self) -> float:
+        v = self.prefix[self.calls] if self.calls < len(self.prefix) else self.default
+        self.calls += 1
+        return v
+
+
 @pytest.fixture
 def clock() -> FakeClock:
     return FakeClock()

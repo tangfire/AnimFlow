@@ -9,6 +9,7 @@ const state = {
   eventsAfterId: 0,
   events: [],            // 已接收事件，按 id 去重
   detailSeq: 0,          // 轮询代次，防止旧响应覆盖
+  jobToken: 0,           // 选择代次：切换任务后丢弃所有在途的旧任务响应（防串台）
   offline: false,
   timers: { list: null, detail: null, events: null, resources: null },
 };
@@ -130,6 +131,7 @@ async function refreshJobs() {
 
 function selectJob(jobId) {
   state.selectedJobId = jobId;
+  state.jobToken += 1;          // 使所有在途的旧任务请求结果作废
   state.eventsAfterId = 0;
   state.events = [];
   $("#d-events").innerHTML = "";
@@ -261,8 +263,10 @@ function renderDetail(job) {
 }
 
 async function renderAttempts(jobId) {
+  const token = state.jobToken;
   try {
     const data = await api(`/api/jobs/${jobId}/attempts?limit=100`);
+    if (token !== state.jobToken || jobId !== state.selectedJobId) return; // 已切换任务，丢弃
     const tbody = $("#d-attempts tbody");
     tbody.innerHTML = data.items.map((a) => `
       <tr>
@@ -281,15 +285,18 @@ async function renderAttempts(jobId) {
 async function pollEvents() {
   const jobId = state.selectedJobId;
   if (!jobId) return;
+  const token = state.jobToken;
   try {
     let guard = 0;
     while (guard++ < 20) {
       const page = await api(`/api/jobs/${jobId}/events?after_id=${state.eventsAfterId}&limit=100`);
+      if (token !== state.jobToken || jobId !== state.selectedJobId) return; // 已切换任务
       const known = new Set(state.events.map((e) => e.id));
       page.events.forEach((e) => { if (!known.has(e.id)) state.events.push(e); });
       state.eventsAfterId = page.next_after_id;
       if (!page.events.length || !page.has_more) break;
     }
+    if (token !== state.jobToken || jobId !== state.selectedJobId) return;
     state.events.sort((a, b) => a.id - b.id);
     renderEvents();
   } catch (_) { /* 断线由 detail 轮询统一处理 */ }

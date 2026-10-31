@@ -64,14 +64,21 @@ def create_app(cfg: Config | None = None) -> FastAPI:
 
     @app.post("/api/jobs", status_code=202)
     def create_job(body: JobCreateBody) -> JSONResponse:
-        data = body.model_dump()
-        extra = {k: v for k, v in (data.get("__pydantic_extra__") or {}).items()}
+        # Pydantic v2 的 model_dump() 会把平铺 extra 拍平到顶层，不能用它读
+        # extra；直接取 __pydantic_extra__，否则平铺参数被静默丢弃。
+        extras = dict(body.__pydantic_extra__ or {})
         if body.params is not None:
+            if extras:
+                return _error(
+                    422, "INPUT_INVALID",
+                    f"params 嵌套格式不能与平铺参数混用，多余的键: {sorted(extras)}",
+                )
             params_raw = dict(body.params)
-            fault_raw = body.demo_fault if body.demo_fault is not None else extra.get("demo_fault")
+            fault_raw = body.demo_fault
         else:
-            params_raw = {k: v for k, v in extra.items() if k != "demo_fault"}
-            fault_raw = body.demo_fault if body.demo_fault is not None else extra.get("demo_fault")
+            fault_raw = body.demo_fault if body.demo_fault is not None else extras.pop(
+                "demo_fault", None)
+            params_raw = extras  # 平铺业务参数；未知键由 normalize_input 拒绝
         try:
             params = pipeline.normalize_input(params_raw)
             fault = pipeline.normalize_fault(fault_raw)

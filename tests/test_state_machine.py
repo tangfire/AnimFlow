@@ -607,3 +607,168 @@ def test_retry_backoff_bounded():
     assert pipeline.retry_backoff_seconds(5) == 16.0
     assert pipeline.retry_backoff_seconds(6) == 30.0
     assert pipeline.retry_backoff_seconds(20) == 30.0
+
+
+# ---- 回归：租约校验必须在事务内取时（外部复核问题 1）----------------------
+
+
+def test_complete_rejected_when_lease_expires_during_file_verify(repo_clock, clock, monkeypatch):
+    repo = repo_clock
+    """文件校验跨过租约期限：complete 必须用事务内新时间复查持有权并拒绝。
+
+    复现（修复前）：claim 时 t=1000、lease=10；verify_bundle 期间推进到 1011；
+    complete 仍沿用入口时的 now=1000 而接受成功发布。
+    """
+    from app import artifacts as art_mod
+
+    job = repo.create_job(dict(pipeline.DEFAULT_INPUT))
+    claim = repo.claim_next_step("w")
+    assert claim is not None
+    bundles = make_fake_bundle(repo, claim)
+
+    real_verify = art_mod.verify_bundle
+
+    def verify_then_expire(*args, **kwargs):
+        clock.advance(11)  # 校验期间租约（1000+10=1010）过期
+        return real_verify(*args, **kwargs)
+
+    monkeypatch.setattr(art_mod, "verify_bundle", verify_then_expire)
+    with pytest.raises(IdentityRejected) as ei:
+        repo.complete_attempt(claim.attempt_id, "w", bundles, "fp-x")
+    assert ei.value.code == REJ_LEASE
+    monkeypatch.undo()
+
+    # 过期操作不得发布结果
+    detail = repo.get_job_detail(job["id"])
+    step = detail["steps"][0]
+    assert step["status"] == "RUNNING"
+    assert step["artifacts"] == []
+    assert step["output_fingerprint"] is None
+    # 过期操作不得续活租约
+    before = repo.attempt_rows(claim.step_id)[0]
+    with pytest.raises(IdentityRejected) as ei:
+        repo.heartbeat(claim.attempt_id, "w")
+    assert ei.value.code == REJ_LEASE
+    after = repo.attempt_rows(claim.step_id)[0]
+    assert after["lease_expires_at"] == before["lease_expires_at"]
+    assert after["heartbeat_at"] == before["heartbeat_at"]
+    # 回收后旧 attempt=WORKER_LOST；旧 complete 仍被拒，不覆盖任何状态
+    recovered = repo.recover_expired()
+    assert [r.attempt_id for r in recovered] == [claim.attempt_id]
+    assert repo.slot_holders() == {"cpu-0": None, "cpu-1": None, "gpu-0": None}
+    with pytest.raises(IdentityRejected):
+        repo.complete_attempt(claim.attempt_id, "w", bundles, "fp-x")
+    assert repo.get_job_detail(job["id"])["steps"][0]["status"] == "RETRY_WAIT"
+
+
+def test_heartbeat_rejected_when_lease_expires_before_tx_check(repo_clock, clock):
+    """等待写锁期间过期：heartbeat 的续租必须在事务内取时后被拒绝。"""
+    job = repo_clock.create_job(dict(pipeline.DEFAULT_INPUT))
+    claim = repo_clock.claim_next_step("w")
+    assert claim is not None
+    before = repo_clock.attempt_rows(claim.step_id)[0]
+
+    def boom(point):
+        if point == "heartbeat_begin":
+            clock.advance(11)  # BEGIN IMMEDIATE 等待期间租约过期
+
+    repo_clock.tx_fault_hook = boom
+    with pytest.raises(IdentityRejected) as ei:
+        repo_clock.heartbeat(claim.attempt_id, "w", progress=0.5)
+    assert ei.value.code == REJ_LEASE
+    repo_clock.tx_fault_hook = None
+    after = repo_clock.attempt_rows(claim.step_id)[0]
+    assert after["lease_expires_at"] == before["lease_expires_at"]
+    assert after["heartbeat_at"] == before["heartbeat_at"]
+    assert repo_clock.step_row(job["id"], "inspect_asset")["progress"] in (0, None)
+
+
+def test_fail_rejected_when_lease_expires_before_tx_check(repo_clock, clock):
+    """等待写锁期间过期：fail_attempt 不得结束步骤或释放资源。"""
+    job = repo_clock.create_job(dict(pipeline.DEFAULT_INPUT))
+    claim = repo_clock.claim_next_step("w")
+
+    def boom(point):
+        if point == "fail_begin":
+            clock.advance(11)
+
+    repo_clock.tx_fault_hook = boom
+    with pytest.raises(IdentityRejected) as ei:
+        repo_clock.fail_attempt(claim.attempt_id, "w", "STEP_EXCEPTION", "x")
+    assert ei.value.code == REJ_LEASE
+    repo_clock.tx_fault_hook = None
+    step = repo_clock.step_row(job["id"], "inspect_asset")
+    assert step["status"] == "RUNNING"            # 未被过期操作终结
+    assert step["active_attempt_id"] == claim.attempt_id
+    assert claim.attempt_id in repo_clock.slot_holders().values()  # 资源未被释放
+    # 之后正常回收仍是 WORKER_LOST（资源由回收路径释放）
+    repo_clock.recover_expired()
+    assert all(v is None for v in repo_clock.slot_holders().values())
+
+
+# ---- 回归：领取路径的任务级错误必须聚合终态（外部复核问题 2）-------------
+
+
+def test_claim_precheck_invalid_artifact_fails_job(repo):
+    """完成 inspect 后删除其已发布文件，再 claim：
+    fatal=ARTIFACT_INVALID，无在途任务转 FAILED，剩余步骤 BLOCKED。"""
+    job = repo.create_job(dict(pipeline.DEFAULT_INPUT))
+    claim = repo.claim_next_step("w")
+    repo.complete_attempt(claim.attempt_id, "w", make_fake_bundle(repo, claim), "fp-inspect")
+    # 删除已发布产物
+    published = repo.get_job_detail(job["id"])["steps"][0]["artifacts"][0]
+    (repo.artifacts_root / published["relative_path"]).unlink()
+    # 领取被拒且任务聚合到终态
+    assert repo.claim_next_step("w") is None
+    detail = repo.get_job_detail(job["id"])
+    assert detail["fatal_error_code"] == "ARTIFACT_INVALID"
+    assert detail["status"] == "FAILED"           # 无在途 → FAILED（修复前停在 RUNNING）
+    for s in detail["steps"][1:]:
+        assert s["status"] == "BLOCKED", s["name"]
+    evs = [e["type"] for e in repo.get_events(job["id"], limit=500)["events"]]
+    assert "ARTIFACT_INVALID" in evs and "JOB_FAILED" in evs
+    # 多次轮询/领取不再改变状态
+    assert repo.claim_next_step("w") is None
+    assert repo.get_job_detail(job["id"])["status"] == "FAILED"
+
+
+def test_claim_unsupported_pipeline_version_fails_queued_job(repo):
+    """待执行任务的 pipeline_version 不受支持：领取后任务不得停在 QUEUED。"""
+    job = repo.create_job(dict(pipeline.DEFAULT_INPUT))
+    import sqlite3
+    from app.db import connect
+    conn = connect(repo.db_path)
+    conn.execute("BEGIN IMMEDIATE")
+    conn.execute("UPDATE jobs SET pipeline_version='9.9.9' WHERE id=?", (job["id"],))
+    conn.execute("COMMIT")
+    conn.close()
+    assert repo.claim_next_step("w") is None
+    detail = repo.get_job_detail(job["id"])
+    assert detail["fatal_error_code"] == "PIPELINE_VERSION_UNSUPPORTED"
+    assert detail["status"] == "FAILED"           # 修复前停在 QUEUED
+    assert all(s["status"] == "BLOCKED" for s in detail["steps"])
+    evs = [e["type"] for e in repo.get_events(job["id"], limit=500)["events"]]
+    assert "JOB_FATAL_ERROR" in evs and "JOB_FAILED" in evs
+
+
+def test_job_fatal_with_inflight_step_drains_then_fails(repo):
+    """有在途步骤时出现任务级 fatal：先停新领取并保持 RUNNING，排空后转 FAILED。"""
+    job = repo.create_job(dict(pipeline.DEFAULT_INPUT))
+    claim = repo.claim_next_step("w")            # inspect 在途
+    assert claim is not None
+    import sqlite3
+    from app.db import connect
+    conn = connect(repo.db_path)
+    conn.execute("BEGIN IMMEDIATE")
+    conn.execute("UPDATE jobs SET pipeline_version='9.9.9' WHERE id=?", (job["id"],))
+    conn.execute("COMMIT")
+    conn.close()
+    assert repo.claim_next_step("w") is None     # 不再领取新步骤
+    detail = repo.get_job_detail(job["id"])
+    assert detail["fatal_error_code"] == "PIPELINE_VERSION_UNSUPPORTED"
+    assert detail["status"] == "RUNNING"         # 在途未排空，不提前 FAILED
+    # 在途步骤结束 → 同事务聚合到 FAILED + BLOCKED
+    repo.complete_attempt(claim.attempt_id, "w", make_fake_bundle(repo, claim), "fp-x")
+    detail = repo.get_job_detail(job["id"])
+    assert detail["status"] == "FAILED"
+    assert all(s["status"] == "BLOCKED" for s in detail["steps"][1:])

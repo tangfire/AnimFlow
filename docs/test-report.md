@@ -25,7 +25,7 @@ python -m venv .venv
 .venv/Scripts/python.exe -m pytest tests/ -q
 ```
 
-**结果：`38 passed, 1 warning in 96.42s`**（2026-10-31）
+**结果：`45 passed, 1 warning in 97.93s`**（2026-10-31，正确性修复轮后的最终数字）
 证据：`docs/evidence/pytest-full-2026-10-31.txt`（`-v` 完整输出）
 唯一的 warning 是 `fastapi/testclient` 的 `StarletteDeprecationWarning`（建议安装 `httpx2`），与本项目逻辑无关。
 
@@ -33,9 +33,9 @@ python -m venv .venv
 
 | 文件 | 数量 | 覆盖内容 |
 | --- | --- | --- |
-| `tests/test_state_machine.py` | 20 | 状态机与事务（A02/A03/A05/A07/A08/A13/A14 的事务断言） |
+| `tests/test_state_machine.py` | 26 | 状态机与事务（A02/A03/A05/A07/A08/A13/A14 的事务断言 + 正确性修复轮 6 项回归） |
 | `tests/test_recovery.py` | 12 | 真实跨进程硬杀与恢复（A01/A04/A06/A07/A08/A09/A11/A14） |
-| `tests/test_api.py` | 6 | HTTP 接口与看板数据（A01/A03/A10/A11/A12） |
+| `tests/test_api.py` | 7 | HTTP 接口与看板数据（A01/A03/A10/A11/A12 + 平铺输入回归） |
 | `tests/test_resources.py` | 0 | 见下方说明 |
 
 > `tests/test_resources.py` 未单独建文件：A08 的 GPU 互斥断言由 `test_recovery.py::test_a07_two_workers_two_jobs_gpu_mutex`
@@ -62,6 +62,16 @@ python -m venv .venv
 | A14 | 不可重试/启动失败/异常退出 | `test_state_machine.py::test_a14_nonretryable_fails_immediately`、`::test_a14_abnormal_exit_consumes_budget`；`test_recovery.py::test_a14_fail_launch_consumes_budget`、`::test_a14_exit_early_then_retry_succeeds`、`::test_a14_claim_then_death_before_spawn_recovered` | PASS |
 
 P0 全部有实测证据，无跳过、无 `xfail`。
+
+### 3.1 正确性修复轮（外部复核问题）的回归用例
+
+外部复核在原 38 项全绿的 main 上复现了三个问题；先补失败测试再修复，新增 7 项：
+
+| 复核问题 | 回归测试 | 修复前 | 修复后 |
+| --- | --- | --- | --- |
+| 1 租约检查用过早采样的时间（complete 文件校验/等写锁期间过期仍接受） | `test_complete_rejected_when_lease_expires_during_file_verify`、`test_heartbeat_rejected_when_lease_expires_before_tx_check`、`test_fail_rejected_when_lease_expires_before_tx_check` | FAIL（接受过期提交/续租） | PASS |
+| 2 领取路径任务级错误未聚合终态（任务停在 RUNNING/QUEUED） | `test_claim_precheck_invalid_artifact_fails_job`、`test_claim_unsupported_pipeline_version_fails_queued_job`、`test_job_fatal_with_inflight_step_drains_then_fails` | FAIL（停在 RUNNING/QUEUED） | PASS（无在途→FAILED+BLOCKED；有在途→排空后 FAILED） |
+| 3 平铺 HTTP 输入被静默忽略（`{"width":999}` 存成默认值） | `test_flat_input_parsed_and_validated` | FAIL（202 且存默认） | PASS（合法值入库；非法/未知/混用 422） |
 
 ## 4. 恢复时间线（真实证据，来自 `scripts/crash_demo.py`）
 
@@ -98,6 +108,24 @@ P0 全部有实测证据，无跳过、无 `xfail`。
 | 3 持续失败→人工 retry | 任务 `FAILED`，stylize 尝试 3 次（预算 3），下游 `BLOCKED`；`retry(clear_fault=true)` 后成功，extract `attempts` 仍为 1，stylize `retry_round=1` |
 | 4 双任务争 GPU | 两任务均 `SUCCEEDED`；采样期间 GPU 有效 holder 峰值 = 1 |
 
+## 5A. 浏览器实测（真实 headless Chromium，11/11 PASS）
+
+证据：`docs/evidence/browser-check-2026-10-31.txt`。用 Playwright 驱动真实 Chromium 打开看板页面，
+实际点击预设按钮与重试按钮，断言 DOM 与页面内状态（非只看 API）：
+
+| 检查项 | 结果 |
+| --- | --- |
+| GIF 预览在页面 `<img>` 内解码成功 | PASS（naturalWidth×Height = 256×256） |
+| ZIP 下载（页面链接）为合法 zip | PASS（含 preview.gif 等 4 个文件） |
+| 永久失败 → FAILED → 点击「人工重试」→ 成功，stylize 历史保留 3×FAILED + SUCCEEDED | PASS |
+| 快速切换两个任务（~120ms×10 次）后事件不串台 | PASS（渲染事件集与另一任务 id 集交集=0） |
+| 快速切换后 attempt 表只含选中任务记录 | PASS（dom 6 行 = API 6 条） |
+
+> 该轮同时修复了看板的一个真实缺陷：快速切换任务时，`pollEvents`/`renderAttempts` 的在途响应
+> 没有作废机制，旧任务的事件可能渲染进新任务视图。修复：`selectJob` 递增 `jobToken`，
+> 所有异步渲染前校验 token，过期响应直接丢弃（`app/static/app.js`）。此项为浏览器实测前的
+> 代码审查发现，实测用于确认修复有效。
+
 ## 6. 真实遇到并修复的缺陷
 
 | 现象 | 根因 | 修复 | 回归验证 |
@@ -110,6 +138,10 @@ P0 全部有实测证据，无跳过、无 `xfail`。
 | FastAPI 把 `body` 当成 query 参数，POST 返回 422 | Pydantic 模型定义在 `create_app` 函数内，注解无法解析 | 模型提升到模块级 | `test_api.py` 6 项由失败转通过 |
 | 子进程 `NameError: Image` | `_stylize_image` 未导入 `PIL.Image` | 补导入 | 冒烟测试六步全绿 |
 | README 冷启动：`pip install -r requirements-dev.txt` 报 `UnicodeDecodeError: 'gbk'` | 中文 Windows 默认 locale 为 cp936，pip 解析 requirements 中的中文注释失败 | requirements 文件改为纯 ASCII 注释 | 新临时目录 + 全新 venv 冷启动通过 |
+| **（外部复核 1）** complete/heartbeat/fail 用方法入口采样的时间做租约检查：文件校验或等写锁期间租约过期仍被接受/续租 | `now` 在事务前采样，`_load_active_attempt` 沿用过期值 | 所有持有权路径（heartbeat/complete/fail/timeout/recover/claim/release/manual_retry）改为 `BEGIN IMMEDIATE` 之后取时，并加注入点 | 3 项回归由失败转通过（`test_*_before_tx_check`、`test_complete_*_during_file_verify`） |
+| **（外部复核 2）** claim 路径发现任务级错误（产物损坏/版本不支持）后任务永远停在 RUNNING 或 QUEUED | `_set_job_fatal` 后直接 return，未调用聚合 | 每个 fatal 点同事务调用 `_aggregate_job`；上游产物收集移到占槽之前（缺产物时不留半套 claim） | 3 项回归由失败转通过 |
+| **（外部复核 3）** `POST /api/jobs {"width":999}` 返回 202 并保存默认值 | Pydantic v2 `model_dump()` 把 extra 拍平，`data["__pydantic_extra__"]` 恒为 None，平铺键被丢弃 | 直接读 `body.__pydantic_extra__`；平铺格式正确解析校验，嵌套与平铺混用明确 422 | `test_flat_input_parsed_and_validated` 由失败转通过 |
+| 快速切换任务时事件/attempt 可能串台 | `pollEvents`/`renderAttempts` 无选择代次防护，旧任务在途响应落进新任务视图 | `jobToken`：切换时递增，异步渲染前校验，过期丢弃 | 浏览器实测 11/11 PASS（含 120ms×10 快速切换） |
 
 ## 7. 已知限制（非缺陷，如实标注）
 

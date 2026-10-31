@@ -58,8 +58,22 @@
 - 按 README 启动 API+Worker → POST 任务（watercolor/seed=2026）→ 六步各 1 次尝试 SUCCEEDED、
   health=valid → 下载 GIF 12 帧 256×256 可解码、ZIP 完整可解压。进程已清理。
 
+## 正确性修复轮（外部复核问题）✅（2026-10-31）
+- 问题1 租约过早采样时间：所有持有权路径改为 `BEGIN IMMEDIATE` 之后取时；3 项回归
+  （verify 期间过期 / 等写锁期间过期的 heartbeat 与 fail）先失败后通过。
+- 问题2 领取路径任务级错误未聚合：每个 fatal 点同事务聚合；上游产物收集移到占槽之前；
+  3 项回归（损坏→FAILED+BLOCKED、版本不支持→QUEUED 转 FAILED、有在途排空后 FAILED）通过。
+- 问题3 平铺输入被静默忽略：直接读 `body.__pydantic_extra__`；平铺正确解析校验、
+  混用 422；`test_flat_input_parsed_and_validated` 通过。
+- 看板串台防护：selectJob 递增 jobToken，pollEvents/renderAttempts 丢弃过期响应。
+- 全量回归：**45 passed in 97.93s**（证据已覆盖 docs/evidence/pytest-full-2026-10-31.txt）。
+- 浏览器实测（Playwright+真实 Chromium，11/11 PASS）：GIF 解码、ZIP 下载、
+  失败→人工重试、~120ms×10 快速切换不串台；证据 docs/evidence/browser-check-2026-10-31.txt。
+- 文档同步：test-report（45 项/新缺陷/浏览器节）、decisions D10/D11、README 双输入格式、
+  demo-script §6 录制脚本。
+
 ## 待解决问题
 - 无。
 
 ## 下一步
-- 向用户汇报；个人信息/工时/token 待本人补充；公开仓库验证待本人在未登录浏览器确认。
+- 向用户汇报；个人信息/工时/token 待本人补充。

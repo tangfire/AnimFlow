@@ -295,3 +295,40 @@ def test_a10_api_restart_worker_continues(client, tmp_env, worker_spawner):
         assert empty["next_after_id"] == full[-1]["id"] + 100
     finally:
         terminate_process_tree(api_proc2)
+
+
+# ---- 回归：平铺输入必须解析或明确拒绝（外部复核问题 3）------------------
+
+
+def test_flat_input_parsed_and_validated(client):
+    """平铺格式：合法值实际入库；非法值 422；未知参数 422；不得静默忽略。"""
+    # 合法平铺 → 实际入库（修复前被静默丢弃、存成默认值）
+    r = client.post("/api/jobs", json={"style": "comic", "seed": 7})
+    assert r.status_code == 202
+    detail = client.get(f"/api/jobs/{r.json()['id']}").json()
+    assert detail["input"]["params"]["style"] == "comic"
+    assert detail["input"]["params"]["seed"] == 7
+    assert detail["input"]["params"]["width"] == 256  # 未提供的键保留默认
+    # 非法平铺值 → 422（修复前 202 且存默认）
+    assert client.post("/api/jobs", json={"width": 9999}).status_code == 422
+    assert client.post("/api/jobs", json={"seed": -1}).status_code == 422
+    assert client.post("/api/jobs", json={"style": "nope"}).status_code == 422
+    # 未知参数 → 422（不得静默丢弃）
+    r = client.post("/api/jobs", json={"style": "neon", "bogus_key": 1})
+    assert r.status_code == 422
+    assert "bogus_key" in r.json()["error"]["message"]
+    # 平铺与 params 嵌套混用 → 422（明确拒绝，不猜测语义）
+    r = client.post("/api/jobs", json={"params": {"seed": 3}, "width": 999})
+    assert r.status_code == 422
+    # 嵌套格式仍然可用
+    r = client.post("/api/jobs", json={"params": {"style": "pixel", "seed": 9}})
+    assert r.status_code == 202
+    detail = client.get(f"/api/jobs/{r.json()['id']}").json()
+    assert detail["input"]["params"]["style"] == "pixel"
+    # 平铺 demo_fault 也必须解析（同样不得静默丢弃）
+    r = client.post("/api/jobs", json={
+        "seed": 5, "demo_fault": {"always_fail": {"plan_motion": True}}})
+    assert r.status_code == 202
+    detail = client.get(f"/api/jobs/{r.json()['id']}").json()
+    assert detail["input"]["demo_fault"] == {"always_fail": {"plan_motion": True}}
+    assert detail["input"]["params"]["seed"] == 5

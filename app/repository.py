@@ -457,7 +457,8 @@ class Repository:
     # ---- 领取 ------------------------------------------------------------
 
     def _precheck_upstream_artifacts(
-        self, conn: sqlite3.Connection, job: dict[str, Any], deps: Iterable[str]
+        self, conn: sqlite3.Connection, job: dict[str, Any], deps: Iterable[str],
+        now: float,
     ) -> str | None:
         """领取前校验成功上游产物的磁盘完整性。损坏 → 任务级 fatal，返回错误码。"""
         for dep_name in deps:
@@ -476,7 +477,7 @@ class Repository:
                 if problems:
                     self._set_job_fatal(
                         conn, job["id"], ERR_ARTIFACT_INVALID,
-                        f"上游 {dep_name} 产物损坏: {'; '.join(problems)}", now=None,
+                        f"上游 {dep_name} 产物损坏: {'; '.join(problems)}", now,
                         artifact_id=a["id"], step_name=dep_name,
                     )
                     return ERR_ARTIFACT_INVALID
@@ -504,11 +505,13 @@ class Repository:
         """公平扫描（job created_at → step order_index），同事务建 attempt + 占槽。
 
         资源忙时跳过继续找其他工作；不为“等待资源”消耗 attempt。
+        时间在 BEGIN IMMEDIATE 之后取：等待写锁期间到达的重试窗口、
+        新到期的 next_run_at 都以新时间为准。
         """
-        now = self.now()
         with self._conn() as conn:
             with self._tx(conn) as c:
                 self._inject("claim_begin")
+                now = self.now()
                 jobs = c.execute(
                     "SELECT * FROM jobs WHERE status IN (?,?) ORDER BY created_at, id",
                     (JobStatus.QUEUED.value, JobStatus.RUNNING.value),
@@ -529,13 +532,14 @@ class Repository:
         steps = self._steps_rows(c, job["id"])
         if any(s["status"] == StepStatus.FAILED.value for s in steps):
             return None
-        # 版本支持检查
+        # 版本支持检查：任务级错误必须停止新领取并聚合终态
         if job["pipeline_version"] not in pipeline.SUPPORTED_PIPELINE_VERSIONS:
             self._set_job_fatal(
                 c, job["id"], ERR_PIPELINE_VERSION,
                 f"pipeline_version={job['pipeline_version']} 不受当前 Worker 支持",
                 now,
             )
+            self._aggregate_job(c, job["id"], now)
             return None
         steps_by_name = {s["name"]: s for s in steps}
         for s in steps:
@@ -556,11 +560,38 @@ class Repository:
                     c, job["id"], ERR_PIPELINE_VERSION,
                     f"步骤 {s['name']} 版本 {s['version']} 与当前代码不一致", now,
                 )
+                self._aggregate_job(c, job["id"], now)
                 return None
             # 依赖产物完整性预检（A11：损坏检测必须发生在新依赖执行前）
             deps = json.loads(s["depends_on_json"])
-            if self._precheck_upstream_artifacts(c, job, deps) is not None:
+            if self._precheck_upstream_artifacts(c, job, deps, now) is not None:
+                self._aggregate_job(c, job["id"], now)
                 return None
+            # 收集上游产物清单——必须在占槽之前：缺产物时干净地拒绝并聚合，
+            # 不留半套 claim（attempt/槽位/步骤已提交却无人执行）
+            _, fault = _parse_input(job["input_json"])
+            upstream: dict[str, dict[str, Any]] = {}
+            for d in deps:
+                drow = steps_by_name[d]
+                darts = c.execute(
+                    "SELECT * FROM artifacts WHERE step_id=? ORDER BY created_at", (drow["id"],)
+                ).fetchall()
+                if not darts:
+                    self._set_job_fatal(c, job["id"], ERR_ARTIFACT_INVALID,
+                                        f"上游 {d} SUCCEEDED 但无产物记录", now)
+                    self._aggregate_job(c, job["id"], now)
+                    return None
+                upstream[d] = {
+                    "artifacts": [
+                        {
+                            "relative_path": a["relative_path"],
+                            "absolute_path": str((self.artifacts_root / a["relative_path"]).resolve()),
+                            "kind": a["kind"],
+                            "manifest": json.loads(a["manifest_json"]),
+                        }
+                        for a in darts
+                    ]
+                }
             # 资源槽位
             slot = c.execute(
                 "SELECT * FROM resource_slots WHERE kind=? AND holder_attempt_id IS NULL"
@@ -619,28 +650,6 @@ class Repository:
                         {"step": s["name"], "attempt_no": attempt_no, "retry_round": s["retry_round"],
                          "resource": s["resource"], "worker": worker_id, "slot": slot["id"]},
                         step_id=s["id"], attempt_id=attempt_id, now=now)
-            _, fault = _parse_input(job["input_json"])
-            upstream: dict[str, dict[str, Any]] = {}
-            for d in deps:
-                drow = steps_by_name[d]
-                darts = c.execute(
-                    "SELECT * FROM artifacts WHERE step_id=? ORDER BY created_at", (drow["id"],)
-                ).fetchall()
-                if not darts:
-                    self._set_job_fatal(c, job["id"], ERR_ARTIFACT_INVALID,
-                                        f"上游 {d} SUCCEEDED 但无产物记录", now)
-                    return None
-                upstream[d] = {
-                    "artifacts": [
-                        {
-                            "relative_path": a["relative_path"],
-                            "absolute_path": str((self.artifacts_root / a["relative_path"]).resolve()),
-                            "kind": a["kind"],
-                            "manifest": json.loads(a["manifest_json"]),
-                        }
-                        for a in darts
-                    ]
-                }
             return ClaimedStep(
                 job_id=job["id"], step_id=s["id"], step_name=s["name"], step_version=s["version"],
                 attempt_id=attempt_id, attempt_no=attempt_no, retry_round=s["retry_round"],
@@ -687,10 +696,15 @@ class Repository:
         self, attempt_id: str, owner: str,
         progress: float | None = None, progress_message: str | None = None,
     ) -> dict[str, Any]:
-        """续租 + 限频持久化进展。租约过期/身份不符一律拒绝。"""
-        now = self.now()
+        """续租 + 限频持久化进展。
+
+        时间在 BEGIN IMMEDIATE 之后取：方法入口到拿到写锁之间的时间流逝
+        （等待锁、调度延迟）必须计入租约检查，过期即拒绝，不得续活。
+        """
         with self._conn() as conn:
             with self._tx(conn):
+                self._inject("heartbeat_begin")
+                now = self.now()
                 ctx = self._load_active_attempt(conn, attempt_id, owner, now)
                 step = ctx["step"]
                 new_lease = now + self.lease_seconds
@@ -721,8 +735,9 @@ class Repository:
         """发布成功：先在事务外校验文件，再在租约保护的事务内发布。
 
         返回 {"job_status": ...}。身份/租约不符抛 IdentityRejected。
+        持有权检查在 BEGIN IMMEDIATE 之后用**新的时间**执行：文件校验与
+        等待写锁期间的流逝都计入租约，过期不得发布。
         """
-        now = self.now()
         # 1) 事务外校验产物完整性（plan.md §8：校验后再发布）
         work_dir = None
         with self._conn() as conn:
@@ -739,6 +754,7 @@ class Repository:
         with self._conn() as conn:
             with self._tx(conn):
                 self._inject("complete_begin")
+                now = self.now()
                 ctx = self._load_active_attempt(conn, attempt_id, owner, now)
                 step = ctx["step"]
                 job_id = step["job_id"]
@@ -780,13 +796,16 @@ class Repository:
         self, attempt_id: str, owner: str, error_code: str, message: str,
         retryable: bool | None = None,
     ) -> dict[str, Any]:
-        """失败/超时/异常退出的统一路径。可重试 → RETRY_WAIT + 退避；否则步骤 FAILED。"""
-        now = self.now()
+        """失败/超时/异常退出的统一路径。可重试 → RETRY_WAIT + 退避；否则步骤 FAILED。
+
+        持有权检查在 BEGIN IMMEDIATE 之后取时；等待写锁期间过期即拒绝。
+        """
         if retryable is None:
             retryable = is_retryable(error_code)
         with self._conn() as conn:
             with self._tx(conn):
                 self._inject("fail_begin")
+                now = self.now()
                 ctx = self._load_active_attempt(conn, attempt_id, owner, now)
                 step = ctx["step"]
                 attempt = ctx["attempt"]
@@ -838,9 +857,9 @@ class Repository:
                         else StepStatus.FAILED.value}
 
     def fail_attempt_timed_out(self, attempt_id: str, owner: str, message: str) -> dict[str, Any]:
-        now = self.now()
         with self._conn() as conn:
             with self._tx(conn):
+                now = self.now()
                 ctx = self._load_active_attempt(conn, attempt_id, owner, now)
                 step = ctx["step"]
                 attempt = ctx["attempt"]
@@ -892,10 +911,10 @@ class Repository:
 
     def recover_expired(self) -> list[RecoveredAttempt]:
         """回收过期租约：结束旧 attempt、释放它拥有的资源、安排重试或终止。"""
-        now = self.now()
         recovered: list[RecoveredAttempt] = []
         with self._conn() as conn:
             with self._tx(conn):
+                now = self.now()
                 rows = conn.execute(
                     "SELECT a.*, s.name AS step_name, s.attempts_in_round,"
                     " s.max_attempts_per_round, s.active_attempt_id AS step_active"
@@ -1033,9 +1052,9 @@ class Repository:
         return current
 
     def aggregate_job(self, job_id: str) -> str:
-        now = self.now()
         with self._conn() as conn:
             with self._tx(conn):
+                now = self.now()
                 return self._aggregate_job(conn, job_id, now)
 
     # ---- 人工 retry ------------------------------------------------------
@@ -1071,11 +1090,11 @@ class Repository:
         预检：成功产物完整性 + 版本支持；不通过 → ArtifactInvalid（HTTP 409）。
         fatal 写入先提交、异常在事务外抛出，避免回滚掉 ARTIFACT_INVALID 记录。
         """
-        now = self.now()
         invalid_message: str | None = None
         with self._conn() as conn:
             with self._tx(conn):
                 self._inject("retry_begin")
+                now = self.now()
                 job = self._job_row(conn, job_id)
                 if job is None:
                     raise LookupError(job_id)
@@ -1227,10 +1246,10 @@ class Repository:
             conn.close()
 
     def release_resource_for_test(self, attempt_id: str, owner: str) -> None:
-        """释放资源：走与 complete/fail 相同的身份/租约守卫。仅供 A05 测试。"""
-        now = self.now()
+        """释放资源：走与 complete/fail 相同的身份/租约守卫（事务内取时）。"""
         with self._conn() as conn:
             with self._tx(conn):
+                now = self.now()
                 self._load_active_attempt(conn, attempt_id, owner, now)
                 self._release_slot(conn, attempt_id, now)
 

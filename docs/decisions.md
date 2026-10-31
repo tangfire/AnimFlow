@@ -58,3 +58,21 @@
 - **Docker / CI / 公网部署（B04）**：未实现（本地项目优先；发布步骤见 README）。
 - **孤儿产物自动清理**：未实现。崩溃留下的旧 attempt 目录保留供排查。
 - **真实 GPU 隔离与指标采集**：未实现，见 `architecture.md` 第 6 节。
+
+## D10. 平铺与嵌套两种任务输入格式都支持，混用明确拒绝
+**原因**：外部复核发现 `POST /api/jobs {"width":999}` 返回 202 且静默保存默认值——
+Pydantic v2 的 `model_dump()` 会把 extra 键拍平到顶层，原代码读 `data["__pydantic_extra__"]`
+恒为 None，平铺参数被整体丢弃。
+**行为变化**：改为直接读 `body.__pydantic_extra__`；平铺格式的业务参数与 `demo_fault`
+都被正确解析并走 `normalize_input`/`normalize_fault` 校验（非法值 422、未知键 422）；
+`params` 嵌套与平铺混用时明确 422，不猜测语义。
+**替代验证**：`test_api.py::test_flat_input_parsed_and_validated`。
+
+## D11. 持有权检查在 BEGIN IMMEDIATE 之后取时
+**原因**：外部复核发现 complete 在文件校验前采样 `now`，发布事务沿用该时间，
+校验期间租约过期仍会发布；heartbeat/fail/release/claim 同类。
+**行为变化**：所有持有权路径（heartbeat/complete/fail/timeout/recover/release/manual_retry）
+与决策路径（claim 的 next_run_at 判断、聚合）统一在拿到写锁后取当前时间；
+方法入口到写锁之间的时间流逝（文件校验、等待锁、调度延迟）全部计入租约。
+过期操作被拒绝：不发布结果、不续活租约、不释放资源，交由回收路径记 WORKER_LOST。
+**替代验证**：3 项回归测试（verify 期间过期 + 两个「等写锁期间过期」）。

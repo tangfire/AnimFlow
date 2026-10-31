@@ -97,9 +97,15 @@ python -m venv .venv
 ### 提交示例
 
 ```bash
+# 嵌套格式
 curl -X POST http://127.0.0.1:8000/api/jobs \
   -H "Content-Type: application/json" \
   -d '{"params": {"width":256, "height":256, "frame_count":12, "fps":25, "style":"neon", "seed":42}}'
+
+# 平铺格式（同样支持；非法值/未知键返回 422，不能与 params 混用）
+curl -X POST http://127.0.0.1:8000/api/jobs \
+  -H "Content-Type: application/json" \
+  -d '{"style": "comic", "seed": 7, "demo_fault": {"fail_first_n": {"stylize_frames": 1}}}'
 ```
 
 ## 数据位置与含义
