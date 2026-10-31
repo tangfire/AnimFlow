@@ -102,3 +102,5 @@
 - 验证命令：`python -m pytest tests/ -q` → 75 passed in 123.18s；强化限流预算断言后 `tests/test_planner.py` → 30 passed in 1.48s。
 - 新 venv 安装成功 + 30 模型测试 passed in 1.22s；浏览器真实任务回看 4/4 PASS。
 - 第二次真实对照请求返回 bounce/橙色配色，1641ms、674 tokens，最终36帧GIF可解码；两次运行总应用用量1346 tokens。
+
+- 已验证实现提交：`6567937`（真实 DeepSeek 规划、渲染、75项测试与两次真实调用证据）。
