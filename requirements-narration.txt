@@ -1,0 +1,3 @@
+# Optional post-production; no DeepSeek API calls or keys involved.
+-r requirements-recording.txt
+edge-tts==7.3.1

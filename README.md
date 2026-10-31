@@ -84,8 +84,9 @@ pytest 和普通浏览器回归始终走离线 MOCK，不调用付费模型。�
 
 ## 五分钟演示
 
-[演示视频：3 分 26 秒，7.24 MB，中文字幕、无旁白](docs/assets/AnimFlow-demo.mp4)（GitHub 文件页可下载原始 MP4）。
-自动化连续录制方式与边界见 [docs/video.md](docs/video.md)。本机附件副本在 `deliverables/AnimFlow-demo.mp4`，不包含实际 Key。
+[推荐演示视频：3 分 26 秒，10.24 MB，中文合成旁白与说明字幕](docs/assets/AnimFlow-demo-narrated.mp4)（GitHub 文件页可下载 MP4）。
+[保留的原始无旁白版](docs/assets/AnimFlow-demo.mp4)。实际任务画面不变，旁白按章节解释操作与恢复行为。
+录制和配音方式见 [docs/video.md](docs/video.md)。本机推荐附件为 `deliverables/AnimFlow-demo-narrated.mp4`，不包含实际 Key。
 
 ```bash
 # 场景 A：硬杀恢复（约 30 秒，只结束脚本自己创建的进程）

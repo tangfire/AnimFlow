@@ -1,0 +1,164 @@
+{
+  "voice": "zh-CN-YunxiNeural",
+  "type": "synthetic Chinese narration",
+  "source": "AnimFlow-demo.mp4",
+  "output": "AnimFlow-demo-narrated.mp4",
+  "duration_seconds": 206.07999999999998,
+  "segments": [
+    {
+      "start": 0.8,
+      "end": 12.8,
+      "speech_seconds": 10.323,
+      "tempo": 1.0,
+      "text": "这是一个支持可观测与故障恢复的任务管线。模型负责动作规划，图像由程序渲染，任务状态保存在数据库。"
+    },
+    {
+      "start": 14.2,
+      "end": 26.5,
+      "speech_seconds": 10.419,
+      "tempo": 1.0,
+      "text": "先输入动画要求。系统调用真实的 DeepSeek，生成配色、运动方式和速度规划，再交给后续步骤执行。"
+    },
+    {
+      "start": 27.8,
+      "end": 35.8,
+      "speech_seconds": 7.783,
+      "tempo": 1.055,
+      "text": "任务已经完成。这里可以查看真实模型名称、响应耗时、令牌用量和请求编号。"
+    },
+    {
+      "start": 36.8,
+      "end": 44.8,
+      "speech_seconds": 7.785,
+      "tempo": 1.064,
+      "text": "蓝色光球已按规划生成，沿轨道运动。画面由程序渲染，不是通用文生视频。"
+    },
+    {
+      "start": 45.7,
+      "end": 50.7,
+      "speech_seconds": 4.782,
+      "tempo": 1.04,
+      "text": "下载得到动画和参数压缩包，完整性检查已经通过。"
+    },
+    {
+      "start": 51.7,
+      "end": 63.8,
+      "speech_seconds": 11.091,
+      "tempo": 1.0,
+      "text": "接下来测试失败恢复。模型规划仍然是真实调用，但在后续风格处理步骤持续注入故障，验证重试预算。"
+    },
+    {
+      "start": 65.1,
+      "end": 75.9,
+      "speech_seconds": 9.987,
+      "tempo": 1.0,
+      "text": "三次尝试耗尽后，任务失败，下游步骤被阻塞。已经成功的动作规划保留下来，历史记录也没有删除。"
+    },
+    {
+      "start": 77.2,
+      "end": 85.3,
+      "speech_seconds": 7.878,
+      "tempo": 1.106,
+      "text": "现在清除演示故障，点击人工重试。系统只重跑失败和阻塞步骤，不重算成功的上游。"
+    },
+    {
+      "start": 86.5,
+      "end": 98.7,
+      "speech_seconds": 11.763,
+      "tempo": 1.0,
+      "text": "重试完成后，规划步骤仍只有一次尝试，产物和请求编号保持不变。失败历史仍然可查，成功规划没有再次调用模型。"
+    },
+    {
+      "start": 100.6,
+      "end": 112.8,
+      "speech_seconds": 10.683,
+      "tempo": 1.0,
+      "text": "下面切换到离线模拟模式，单独验证恢复机制。风格处理第一次失败，系统按持久化的退避策略自动重试。"
+    },
+    {
+      "start": 114.9,
+      "end": 121.9,
+      "speech_seconds": 6.779,
+      "tempo": 1.066,
+      "text": "重试后任务成功，历史同时保留失败和成功两次尝试，上游没有重跑。"
+    },
+    {
+      "start": 123.0,
+      "end": 130.5,
+      "speech_seconds": 7.035,
+      "tempo": 1.0,
+      "text": "接着提交慢任务，等待风格处理开始，然后强制终止自己启动的工作进程。"
+    },
+    {
+      "start": 131.4,
+      "end": 135.9,
+      "speech_seconds": 4.283,
+      "tempo": 1.144,
+      "text": "进程已强杀，接口可查询，等待租约回收。"
+    },
+    {
+      "start": 136.5,
+      "end": 147.9,
+      "speech_seconds": 10.395,
+      "tempo": 1.0,
+      "text": "现在启动新的工作进程。它回收过期租约，把旧尝试标记为工作进程丢失，再创建新的尝试继续执行。"
+    },
+    {
+      "start": 149.0,
+      "end": 161.0,
+      "speech_seconds": 11.547,
+      "tempo": 1.0,
+      "text": "恢复完成。旧尝试显示丢失，新尝试成功，上游次数保持不变。这里提供至少一次执行语义，中断步骤可能重做。"
+    },
+    {
+      "start": 163.1,
+      "end": 174.5,
+      "speech_seconds": 9.771,
+      "tempo": 1.0,
+      "text": "最后创建两个任务，竞争一个模拟显卡槽位。处理器与显卡资源分池，等待显卡不会消耗尝试次数。"
+    },
+    {
+      "start": 175.0,
+      "end": 183.8,
+      "speech_seconds": 8.584,
+      "tempo": 1.049,
+      "text": "资源面板显示当前持有者，另一个任务等待。这里只限制逻辑预约，不表示真实显卡进程隔离。"
+    },
+    {
+      "start": 185.3,
+      "end": 190.8,
+      "speech_seconds": 5.265,
+      "tempo": 1.128,
+      "text": "两个任务均已完成，采样期间的显卡槽位持有者峰值为一。"
+    },
+    {
+      "start": 192.0,
+      "end": 198.2,
+      "speech_seconds": 5.955,
+      "tempo": 1.0,
+      "text": "刷新页面后，任务和历史仍然保留，状态来自数据库。"
+    },
+    {
+      "start": 199.2,
+      "end": 205.7,
+      "speech_seconds": 5.763,
+      "tempo": 1.0,
+      "text": "源码与测试证据见仓库。以上为中文合成旁白。"
+    }
+  ],
+  "bytes": 10243299,
+  "qa": {
+    "duration_seconds": 206.07999999999998,
+    "bytes": 10243299,
+    "video_codec": "h264",
+    "audio_codec": "aac",
+    "full_decode": "PASS",
+    "speech_segments": 20,
+    "non_silent_segments": 20,
+    "no_overlap": "PASS",
+    "integrated_loudness_lufs": -18.5,
+    "true_peak_dbtp": -1.86,
+    "voice": "zh-CN-YunxiNeural",
+    "type": "synthetic narration, not applicant live speech"
+  }
+}

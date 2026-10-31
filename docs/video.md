@@ -1,5 +1,7 @@
 # 演示视频
 
+**推荐提交带旁白版：`docs/assets/AnimFlow-demo-narrated.mp4`**。原始无旁白版保留，下面先介绍原始录制，文末介绍后期配音。
+
 `scripts/record_video.py` 录制真实 Chromium 页面操作，并导出 H.264 MP4。
 中文字幕为单独的说明层，不改业务状态；不配音、不剪掉等待或失败过程。
 视频只覆盖本机 MVP 的演示，不应描述为生产系统或本人独立手写全部代码。
@@ -44,4 +46,25 @@ cd D:\AnimFlow
 成片未上传外部视频平台、未发送邮件；可由本人作为附件提交。
 
 用户随后授权将成片一并提交仓库：`docs/assets/AnimFlow-demo.mp4` 与本机附件副本逐字节 SHA-256 一致，
-可从 GitHub 文件页下载原始 MP4。上文 `deliverables/` 仍被忽略，只有这一份明确指定的成片加入公开源码仓库。
+可从 GitHub 文件页下载原始 MP4。上文 `deliverables/` 仍被忽略；公开仓库只加入用户明确指定的演示成片。
+
+## 中文旁白版（当前推荐）
+
+用户要求为演示增加声音，使用 [edge-tts](https://github.com/rany2/edge-tts) 的 `zh-CN-YunxiNeural` 中文合成语音，
+按 `docs/narration.json` 中 20 段时间轴配音。只提交公开讲解文字给语音服务，不发送 Key、视频画面或本地任务数据。
+画面仍为原来的连续实录，仅更新开头/结尾的“无旁白”字样并加“中文合成旁白”标记，不改任务状态。
+不是申请人本人录音或现场口述，也不声称旁白代表独立手写全部实现。
+
+```powershell
+.venv\Scripts\python.exe -m pip install -r requirements-narration.txt
+.venv\Scripts\python.exe -X utf8 scripts\narrate_video.py
+# 若本机需要代理，可加 --proxy http://127.0.0.1:7897（按实际环境修改）
+```
+
+输出：`deliverables/AnimFlow-demo-narrated.mp4`；公开副本在 `docs/assets/AnimFlow-demo-narrated.mp4`。
+原始 `AnimFlow-demo.mp4` 不覆盖。无需重新调用 DeepSeek，也不重跑任何演示任务。
+
+实际检查：206.08 秒，1600×900，H.264 + AAC，10,243,299 字节。
+整段音视频完整解码通过，20/20 段有声且不超时、不重叠；全片综合响度 -18.50 LUFS，真峰值 -1.86 dBTP。
+抽查开头、模型结果与结尾画面，合成旁白标记及片尾文字正确。原始任务证据沿用原视频，配音后期证据单独保存。
+旁白文本/时间轴在 `docs/narration.json`；配音与媒体 QA 在 `docs/evidence/narration-2026-11-01.json`。
