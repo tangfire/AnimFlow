@@ -221,7 +221,7 @@ def _frame_image(params: dict[str, Any], frame_idx: int, seed: int):
 
 
 def _stylize_image(img, style: str, seed: int, frame_idx: int):
-    from PIL import ImageEnhance, ImageFilter, ImageOps
+    from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
     rng = random.Random(seed * 7919 + frame_idx)
     if style == "neon":

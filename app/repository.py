@@ -107,12 +107,15 @@ class Repository:
         lease_seconds: float = 10.0,
         busy_timeout_ms: int = 5000,
         now_fn: Callable[[], float] | None = None,
+        step_timeout_override: float = 0.0,
     ):
         self.db_path = Path(db_path)
         self.artifacts_root = Path(artifacts_root)
         self.lease_seconds = lease_seconds
         self.busy_timeout_ms = busy_timeout_ms
         self.now_fn: Callable[[], float] = now_fn or _now_system
+        # >0 时覆盖步骤墙钟期限（测试缩短超时用）
+        self.step_timeout_override = step_timeout_override
         # 测试可替换的事务内注入点；生产恒为 None
         self.tx_fault_hook: Callable[[str], None] | None = None
 
@@ -157,10 +160,17 @@ class Repository:
         params: dict[str, Any],
         demo_fault: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """创建任务及全部步骤：单事务。返回任务摘要。"""
+        """创建任务及全部步骤：单事务。返回任务摘要。
+
+        params 中内嵌的 demo_fault 会被拆分为故障配置（不属于业务参数，
+        不进业务指纹）。
+        """
         now = self.now()
         job_id = new_id()
         snapshot = pipeline.dag_snapshot()
+        params = dict(params)
+        if demo_fault is None and "demo_fault" in params:
+            demo_fault = params.pop("demo_fault")
         fault = demo_fault or {}
         input_json = json.dumps(
             {"params": params, "demo_fault": fault}, ensure_ascii=True, sort_keys=True
@@ -272,24 +282,26 @@ class Repository:
         return {"reason": "READY", "message": "依赖已满足，等待 Worker 领取"}
 
     def artifact_health_for_job(self, conn: sqlite3.Connection, job_id: str) -> dict[str, Any]:
-        """轻量健康检查（存在+尺寸），用于任务详情展示。完整摘要校验走 verify。"""
+        """完整健康检查（存在+尺寸+摘要），用于任务详情展示。
+
+        产物均为小文件（KB 级），任务详情可承受全量校验；“已成功”与
+        “当前文件仍可下载”是两个概念（见 README/docs）。
+        """
         rows = conn.execute("SELECT * FROM artifacts WHERE job_id=?", (job_id,)).fetchall()
         invalid: list[dict[str, Any]] = []
         checked = 0
         for r in rows:
             checked += 1
-            target = art.resolve_under_root(self.artifacts_root, r["relative_path"])
-            ok = False
-            if target is not None:
-                if r["relative_path"] and _artifact_is_dir(r["manifest_json"]):
-                    ok = target.is_dir()
-                else:
-                    ok = target.is_file() and target.stat().st_size == r["size_bytes"]
-            if not ok:
+            problems = art.verify_published_artifact(
+                self.artifacts_root, r["relative_path"], r["sha256"], r["size_bytes"],
+                _artifact_is_dir(r["manifest_json"]), json.loads(r["manifest_json"]),
+            )
+            if problems:
                 invalid.append({"artifact_id": r["id"], "relative_path": r["relative_path"],
-                                "kind": r["kind"], "problem": "missing_or_size_mismatch"})
-        status = "valid" if not invalid else ("invalid" if checked else "unknown")
-        return {"status": status if checked else "unknown", "checked": checked, "invalid": invalid}
+                                "kind": r["kind"], "problem": "; ".join(problems[:3])})
+        status = "valid" if not invalid else "invalid"
+        return {"status": status if checked else "unknown", "checked": checked,
+                "invalid": invalid}
 
     def get_job_detail(self, job_id: str) -> dict[str, Any]:
         conn = self._conn()
@@ -567,7 +579,11 @@ class Repository:
             work_dir = self.artifacts_root / job["id"] / s["name"] / f"a{attempt_no}"
             work_dir.mkdir(parents=True, exist_ok=True)
             lease_expires = now + self.lease_seconds
-            deadline = now + s["timeout_seconds"]
+            effective_timeout = (
+                self.step_timeout_override if self.step_timeout_override > 0
+                else s["timeout_seconds"]
+            )
+            deadline = now + effective_timeout
             # 先插 attempt（slot.holder 外键引用它），再条件占槽
             c.execute(
                 "INSERT INTO attempts(id, step_id, job_id, attempt_no, retry_round, owner, status,"
@@ -630,7 +646,7 @@ class Repository:
                 attempt_id=attempt_id, attempt_no=attempt_no, retry_round=s["retry_round"],
                 owner=worker_id, resource=s["resource"], work_dir=str(work_dir),
                 deadline_at=deadline, lease_expires_at=lease_expires,
-                timeout_seconds=s["timeout_seconds"],
+                timeout_seconds=effective_timeout,
                 input_params=_parse_input(job["input_json"])[0], demo_fault=fault,
                 upstream=upstream, pipeline_version=job["pipeline_version"],
             )
@@ -1053,8 +1069,10 @@ class Repository:
         """FAILED → QUEUED：恢复 FAILED/BLOCKED 步骤，保留成功步骤与全部历史。
 
         预检：成功产物完整性 + 版本支持；不通过 → ArtifactInvalid（HTTP 409）。
+        fatal 写入先提交、异常在事务外抛出，避免回滚掉 ARTIFACT_INVALID 记录。
         """
         now = self.now()
+        invalid_message: str | None = None
         with self._conn() as conn:
             with self._tx(conn):
                 self._inject("retry_begin")
@@ -1065,7 +1083,7 @@ class Repository:
                     raise InvalidJobState(
                         "INVALID_STATE", f"只有 FAILED 任务可以人工重试，当前 {job['status']}"
                     )
-                # 版本预检
+                # 版本预检（此时还没有任何写入，直接拒绝是安全的）
                 if job["pipeline_version"] not in pipeline.SUPPORTED_PIPELINE_VERSIONS:
                     raise ArtifactInvalid(
                         ERR_PIPELINE_VERSION,
@@ -1080,7 +1098,7 @@ class Repository:
                                 ERR_PIPELINE_VERSION,
                                 f"步骤 {s['name']} 版本 {s['version']} 不受支持，无法重试",
                             )
-                # 产物完整性预检（A11）：不通过返回 409 并保留失败
+                # 产物完整性预检（A11）：不通过记录 fatal 后在事务外返回 409
                 problems = self.verify_job_success_artifacts(job_id)
                 if problems:
                     detail = "; ".join(
@@ -1093,52 +1111,90 @@ class Repository:
                         step_name=problems[0].get("step"),
                     )
                     self._aggregate_job(conn, job_id, now)
-                    raise ArtifactInvalid(
-                        ERR_ARTIFACT_INVALID,
-                        f"成功产物缺失或摘要不符，拒绝继续：{detail}。请新建任务。",
-                    )
-                # 恢复 FAILED/BLOCKED 步骤
-                restored: list[str] = []
-                for s in steps:
-                    if s["status"] in (StepStatus.FAILED.value, StepStatus.BLOCKED.value):
-                        conn.execute(
-                            "UPDATE steps SET status=?, retry_round=retry_round+1,"
-                            " attempts_in_round=0, next_run_at=?, error_code=NULL,"
-                            " error_message=NULL, progress=NULL, progress_message=NULL,"
-                            " updated_at=? WHERE id=?",
-                            (StepStatus.PENDING.value, now, now, s["id"]),
+                    invalid_message = f"成功产物缺失或摘要不符，拒绝继续：{detail}。请新建任务。"
+                else:
+                    # 恢复 FAILED/BLOCKED 步骤
+                    restored: list[str] = []
+                    for s in steps:
+                        if s["status"] in (StepStatus.FAILED.value, StepStatus.BLOCKED.value):
+                            conn.execute(
+                                "UPDATE steps SET status=?, retry_round=retry_round+1,"
+                                " attempts_in_round=0, next_run_at=?, error_code=NULL,"
+                                " error_message=NULL, progress=NULL, progress_message=NULL,"
+                                " updated_at=? WHERE id=?",
+                                (StepStatus.PENDING.value, now, now, s["id"]),
+                            )
+                            restored.append(s["name"])
+                    # 成功步骤写 OUTPUT_REUSED（每轮重试一次，不追加假 attempt）
+                    for s in steps:
+                        if s["status"] == StepStatus.SUCCEEDED.value:
+                            arts = conn.execute(
+                                "SELECT id, kind FROM artifacts WHERE step_id=?", (s["id"],)
+                            ).fetchall()
+                            self._event(conn, job_id, EventType.OUTPUT_REUSED,
+                                        {"step": s["name"],
+                                         "artifacts": [dict(a) for a in arts],
+                                         "fingerprint": s["output_fingerprint"],
+                                         "trigger": "manual_retry"},
+                                        step_id=s["id"], now=now)
+                    if clear_fault:
+                        params, _ = _parse_input(job["input_json"])
+                        new_input = json.dumps(
+                            {"params": params, "demo_fault": {}},
+                            ensure_ascii=True, sort_keys=True,
                         )
-                        restored.append(s["name"])
-                # 成功步骤写 OUTPUT_REUSED（每轮重试一次，不追加假 attempt）
-                for s in steps:
-                    if s["status"] == StepStatus.SUCCEEDED.value:
-                        arts = conn.execute(
-                            "SELECT id, kind FROM artifacts WHERE step_id=?", (s["id"],)
-                        ).fetchall()
-                        self._event(conn, job_id, EventType.OUTPUT_REUSED,
-                                    {"step": s["name"],
-                                     "artifacts": [dict(a) for a in arts],
-                                     "fingerprint": s["output_fingerprint"],
-                                     "trigger": "manual_retry"},
-                                    step_id=s["id"], now=now)
-                new_input = None
-                if clear_fault:
-                    params, _ = _parse_input(job["input_json"])
-                    new_input = json.dumps(
-                        {"params": params, "demo_fault": {}}, ensure_ascii=True, sort_keys=True
+                        conn.execute("UPDATE jobs SET input_json=? WHERE id=?",
+                                     (new_input, job_id))
+                    conn.execute(
+                        "UPDATE jobs SET status=?, fatal_error_code=NULL,"
+                        " fatal_error_message=NULL, finished_at=NULL, updated_at=? WHERE id=?",
+                        (JobStatus.QUEUED.value, now, job_id),
                     )
-                    conn.execute("UPDATE jobs SET input_json=? WHERE id=?", (new_input, job_id))
-                conn.execute(
-                    "UPDATE jobs SET status=?, fatal_error_code=NULL, fatal_error_message=NULL,"
-                    " finished_at=NULL, updated_at=? WHERE id=?",
-                    (JobStatus.QUEUED.value, now, job_id),
-                )
-                self._event(conn, job_id, EventType.JOB_RETRIED,
-                            {"restored_steps": restored, "clear_fault": clear_fault,
-                             "round": max(s["retry_round"] for s in steps) + 1 if steps else 1},
-                            now=now)
-                self._inject("retry_before_commit")
+                    self._event(conn, job_id, EventType.JOB_RETRIED,
+                                {"restored_steps": restored, "clear_fault": clear_fault,
+                                 "round": max(s["retry_round"] for s in steps) + 1 if steps else 1},
+                                now=now)
+                    self._inject("retry_before_commit")
+        if invalid_message is not None:
+            # fatal 已提交；在事务外抛出 409 语义错误
+            raise ArtifactInvalid(ERR_ARTIFACT_INVALID, invalid_message)
         return self.get_job_detail(job_id)
+
+    # ---- 下载辅助（API 用）----------------------------------------------
+
+    def get_artifact_record(self, artifact_id: str) -> dict[str, Any] | None:
+        conn = self._conn()
+        try:
+            r = conn.execute("SELECT * FROM artifacts WHERE id=?", (artifact_id,)).fetchone()
+            return dict(r) if r else None
+        finally:
+            conn.close()
+
+    def verify_artifact_for_download(self, artifact_id: str) -> list[str]:
+        """下载前完整校验（存在+尺寸+摘要）。返回问题列表。"""
+        rec = self.get_artifact_record(artifact_id)
+        if rec is None:
+            return ["产物记录不存在"]
+        return art.verify_published_artifact(
+            self.artifacts_root, rec["relative_path"], rec["sha256"], rec["size_bytes"],
+            _artifact_is_dir(rec["manifest_json"]), json.loads(rec["manifest_json"]),
+        )
+
+    def record_artifact_invalid(self, artifact_id: str, problems: list[str]) -> None:
+        """下载发现损坏：记录事件（不抹掉历史成功）。"""
+        now = self.now()
+        with self._conn() as conn:
+            with self._tx(conn):
+                r = conn.execute(
+                    "SELECT a.job_id, a.step_id, a.relative_path FROM artifacts a WHERE a.id=?",
+                    (artifact_id,),
+                ).fetchone()
+                if r is None:
+                    return
+                self._event(conn, r["job_id"], EventType.ARTIFACT_INVALID,
+                            {"artifact_id": artifact_id, "relative_path": r["relative_path"],
+                             "trigger": "download", "problem": "; ".join(problems[:3])},
+                            step_id=r["step_id"], now=now)
 
     # ---- 便捷查询（测试与脚本）-------------------------------------------
 
@@ -1202,9 +1258,10 @@ def _artifact_is_dir(manifest_json: str) -> bool:
 
 def bootstrap(db_path: Path | str, artifacts_root: Path | str, cpu_slots: int = 2,
               gpu_slots: int = 1, lease_seconds: float = 10.0,
-              busy_timeout_ms: int = 5000) -> Repository:
+              busy_timeout_ms: int = 5000, step_timeout_override: float = 0.0) -> Repository:
     """幂等初始化数据库与产物目录，返回仓储实例。"""
     init_db(db_path, cpu_slots=cpu_slots, gpu_slots=gpu_slots, busy_timeout_ms=busy_timeout_ms)
     Path(artifacts_root).mkdir(parents=True, exist_ok=True)
     return Repository(db_path, artifacts_root, lease_seconds=lease_seconds,
-                      busy_timeout_ms=busy_timeout_ms)
+                      busy_timeout_ms=busy_timeout_ms,
+                      step_timeout_override=step_timeout_override)

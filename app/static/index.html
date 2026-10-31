@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AnimFlow 看板</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <h1>AnimFlow <span class="sub">可恢复动画素材任务管线</span></h1>
+    <div id="conn-badge" class="badge gray">连接中…</div>
+  </header>
+
+  <div class="notice">
+    演示素材由程序生成（demo_asset_v1）；<strong>AI 与 GPU 计算为模拟</strong>，
+    GPU 槽位是数据库逻辑预约，不是真实显卡隔离。状态全部来自 API 查询，刷新页面可恢复。
+  </div>
+
+  <main class="layout">
+    <!-- 左栏：创建 + 列表 -->
+    <section class="col-left">
+      <div class="card">
+        <h2>创建任务</h2>
+        <div class="presets">
+          <button data-preset="ok" class="preset">成功管线</button>
+          <button data-preset="transient" class="preset">瞬时失败→自动重试</button>
+          <button data-preset="permanent" class="preset">永久失败→人工重试</button>
+          <button data-preset="slow" class="preset">慢任务</button>
+          <button data-preset="gpu" class="preset warn">GPU 争抢 ×2</button>
+        </div>
+        <details class="params-box">
+          <summary>自定义参数</summary>
+          <div class="form-grid">
+            <label>宽 <input type="number" id="p-width" value="256" min="16" max="512"></label>
+            <label>高 <input type="number" id="p-height" value="256" min="16" max="512"></label>
+            <label>帧数 <input type="number" id="p-frames" value="12" min="1" max="48"></label>
+            <label>fps <input type="number" id="p-fps" value="25" min="1" max="50"></label>
+            <label>风格
+              <select id="p-style">
+                <option value="neon">neon</option>
+                <option value="watercolor">watercolor</option>
+                <option value="comic">comic</option>
+                <option value="pixel">pixel</option>
+              </select>
+            </label>
+            <label>seed <input type="number" id="p-seed" value="42" min="0" max="2147483647"></label>
+          </div>
+          <button id="btn-create-custom" class="primary">提交任务</button>
+        </details>
+        <div id="create-msg" class="msg"></div>
+      </div>
+
+      <div class="card">
+        <h2>任务列表 <button id="btn-refresh" class="mini">刷新</button></h2>
+        <div id="job-list" class="job-list">加载中…</div>
+      </div>
+
+      <div class="card">
+        <h2>资源槽位</h2>
+        <div id="resources" class="resources">加载中…</div>
+        <div class="hint">utilization / 显存 / 温度：未采集 / MOCK</div>
+      </div>
+    </section>
+
+    <!-- 右栏：任务详情 -->
+    <section class="col-right" id="detail-pane">
+      <div class="card placeholder" id="detail-placeholder">
+        选择左侧任务查看步骤、attempt、事件与产物。URL 带 <code>?job_id=…</code> 可直接定位。
+      </div>
+      <div id="detail" hidden>
+        <div class="card">
+          <div class="detail-head">
+            <div>
+              <span id="d-status" class="status">-</span>
+              <span id="d-id" class="mono dim"></span>
+            </div>
+            <div class="detail-actions">
+              <label id="clear-fault-wrap" class="inline" hidden>
+                <input type="checkbox" id="d-clear-fault" checked> 清除故障注入
+              </label>
+              <button id="btn-retry" class="warn" hidden>人工重试</button>
+            </div>
+          </div>
+          <div id="d-meta" class="meta"></div>
+          <div id="d-fatal" class="fatal" hidden></div>
+          <div id="d-progress" class="overall-progress">已完成 0/6 步</div>
+        </div>
+
+        <div class="card">
+          <h2>步骤（固定 DAG）</h2>
+          <div id="d-steps" class="steps"></div>
+        </div>
+
+        <div class="card">
+          <h2>产物</h2>
+          <div id="d-artifacts" class="artifacts">无</div>
+          <div id="d-gif" class="gif-box" hidden>
+            <h3>GIF 预览</h3>
+            <img id="gif-img" alt="preview gif">
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Attempt 历史</h2>
+          <div class="table-wrap">
+            <table id="d-attempts">
+              <thead><tr>
+                <th>#</th><th>步骤</th><th>状态</th><th>owner</th>
+                <th>开始</th><th>结束</th><th>错误</th><th>work_dir</th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>事件时间线 <span id="event-count" class="dim"></span></h2>
+          <div id="d-events" class="events"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    AnimFlow MVP · SQLite 持久状态 · at-least-once 执行（非 exactly-once）· 步骤边界恢复
+  </footer>
+  <script src="/app.js"></script>
+</body>
+</html>

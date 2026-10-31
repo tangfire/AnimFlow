@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import time
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,15 +29,30 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def atomic_write_bytes(path: Path, data: bytes) -> None:
-    """同目录临时名 + os.replace，避免半个文件被读到。"""
+def atomic_write_bytes(path: Path, data: bytes, replace_retries: int = 10,
+                       replace_retry_delay: float = 0.05) -> None:
+    """同目录临时名 + os.replace，避免半个文件被读到。
+
+    Windows 上目标文件可能被并发读者短暂占用（WinError 5），
+    对 replace 做有界重试；不静默丢弃写入。
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + f".tmp-{os.getpid()}")
     with open(tmp, "wb") as f:
         f.write(data)
         f.flush()
         os.fsync(f.fileno())
-    os.replace(tmp, path)
+    last_exc: OSError | None = None
+    for attempt in range(replace_retries + 1):
+        try:
+            os.replace(tmp, path)
+            return
+        except OSError as exc:
+            last_exc = exc
+            time.sleep(replace_retry_delay * (1 + attempt * 0.5))
+    if tmp.exists():
+        tmp.unlink(missing_ok=True)
+    raise PermissionError(f"原子替换失败（重试 {replace_retries} 次）: {path}: {last_exc}")
 
 
 def atomic_write_json(path: Path, obj: Any) -> None:

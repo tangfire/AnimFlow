@@ -122,7 +122,7 @@ def spawn_worker(db: Path, artifacts: Path, extra_env: dict | None = None) -> su
 
 @pytest.fixture
 def worker_spawner(tmp_env):
-    """返回 (spawn 函数, 已启动进程列表)；测试结束 finally 清理。"""
+    """返回 spawn 函数（可直接调用）；已启动进程在测试结束时统一清理。"""
     started: list[subprocess.Popen] = []
 
     def _spawn(extra_env: dict | None = None) -> subprocess.Popen:
@@ -130,8 +130,9 @@ def worker_spawner(tmp_env):
         started.append(proc)
         return proc
 
+    _spawn.started = started  # type: ignore[attr-defined]
     try:
-        yield _spawn, started
+        yield _spawn
     finally:
         for proc in started:
             terminate_process_tree(proc)

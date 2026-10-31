@@ -47,6 +47,7 @@ class Config:
     gpu_slots: int = 1
     faults_enabled: bool = True
     step_speed: float = 1.0  # 演示计算的缩放系数，测试可调小
+    step_timeout_s: float = 0.0  # >0 时覆盖所有步骤的墙钟期限（测试用）
     busy_timeout_ms: int = 5000
     max_events_page: int = 500
     max_jobs_page: int = 100
@@ -86,6 +87,7 @@ def load_config() -> Config:
         gpu_slots=_env_int("ANIMFLOW_GPU_SLOTS", 1),
         faults_enabled=os.environ.get("ANIMFLOW_FAULTS_ENABLED", "1") not in ("0", "false", "False"),
         step_speed=_env_float("ANIMFLOW_STEP_SPEED", 1.0),
+        step_timeout_s=_env_float("ANIMFLOW_STEP_TIMEOUT_S", 0.0),
         busy_timeout_ms=_env_int("ANIMFLOW_BUSY_TIMEOUT_MS", 5000),
     )
     return cfg

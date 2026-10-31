@@ -78,6 +78,7 @@ class Supervisor:
         self.repo = Repository(
             cfg.db_path, cfg.artifacts_dir,
             lease_seconds=cfg.lease_seconds, busy_timeout_ms=cfg.busy_timeout_ms,
+            step_timeout_override=cfg.step_timeout_s,
         )
         self.running: dict[str, RunningAttempt] = {}
         self.stop = False
