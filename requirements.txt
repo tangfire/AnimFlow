@@ -1,4 +1,4 @@
-# 运行依赖（版本来自 2026-10-31 实际安装并实测的环境）
+# Runtime dependencies (versions verified on 2026-10-31)
 fastapi==0.162.0
 uvicorn==0.54.0
 pillow==13.0.0

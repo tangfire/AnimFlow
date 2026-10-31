@@ -1,4 +1,4 @@
-# 开发/测试依赖
+# Dev/test dependencies (ASCII-only: some locales, e.g. cp936, break on non-ASCII)
 -r requirements.txt
 pytest==9.2.0
 httpx==0.28.1
