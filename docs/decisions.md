@@ -76,3 +76,14 @@ Pydantic v2 的 `model_dump()` 会把 extra 键拍平到顶层，原代码读 `d
 方法入口到写锁之间的时间流逝（文件校验、等待锁、调度延迟）全部计入租约。
 过期操作被拒绝：不发布结果、不续活租约、不释放资源，交由回收路径记 WORKER_LOST。
 **替代验证**：3 项回归测试（verify 期间过期 + 两个「等写锁期间过期」）。
+
+## D12. 用户明确授权接入真实 DeepSeek，保留离线验证
+
+2026-11-01 用户提供本机 Key 并要求真实模型效果。采用标准库 HTTPS Chat Completions，不添加模型 SDK 隐式重试。
+选 `deepseek-flash`，JSON mode，关闭 thinking，Schema 限制为 renderer 支持的光球/配色/五种运动原语。
+模型方案必须实际改变图像，不是仅展示回复。UI 在本机配置 Key 时默认真实模式；API 与自动测试仍默认 mock。
+`python-dotenv` 只加载本机 `.env`（不覆盖显式环境变量），`.env.example` 不含密钥，测试不产生付费调用。
+首次 live_demo 的模型返回正常：2125ms，672 tokens；连续下游失败人工重试后保留原模型 artifact/attempt。
+pipeline 1.1.0 防止旧任务混用新逻辑，下游指纹加入实际产物摘要；别名模型漂移仍由记录的返回模型与产物摘要描述，不承诺固定权重。
+
+附带修复：全风格测试发现 comic 使用不存在的 `ImageFilter.FindEdges`，更正为 `FIND_EDGES` 并覆盖四种风格。

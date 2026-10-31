@@ -1,0 +1,31 @@
+{
+  "job_id": "80378daa621348b098fae804eaf1f219",
+  "plan": {
+    "accent_color": "#ff8a1e",
+    "background_color": "#1a0b2e",
+    "explanation": "深紫色背景衬托橙色光球，金色光环环绕，采用上下弹跳运动，节奏轻快活泼，霓虹风格强调发光边缘与高对比色彩。",
+    "intensity": 0.7,
+    "latency_ms": 1641,
+    "model": "deepseek-flash",
+    "motion": "bounce",
+    "prompt_version": "motion-json-v1",
+    "provider": "deepseek",
+    "request_id": "87b61700-115a-4c9e-a060-a199003b04ff",
+    "requested_model": "deepseek-flash",
+    "secondary_color": "#ffd447",
+    "speed": 1.3,
+    "title": "橙色光球弹跳",
+    "usage": {
+      "completion_tokens": 108,
+      "prompt_cache_hit_tokens": 384,
+      "prompt_tokens": 566,
+      "total_tokens": 674
+    }
+  },
+  "plan_attempt_count": 1,
+  "reused_artifact_id": "93895da577ac41b388f64a8e77b77230",
+  "gif_path": "docs/assets/deepseek-bounce-demo.gif",
+  "frames": 36,
+  "status": "SUCCEEDED",
+  "test": "real API + Worker + downstream retry"
+}

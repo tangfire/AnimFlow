@@ -1,0 +1,5 @@
+PASS: real provider/model, tokens and motion displayed
+PASS: actual GIF decoded in browser
+PASS: local configuration selects real mode
+PASS: no JavaScript page errors
+Screenshot: D:\AnimFlow\docs\assets\deepseek-dashboard.png

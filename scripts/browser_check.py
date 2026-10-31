@@ -108,6 +108,9 @@ def main() -> int:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page(viewport={"width": 1500, "height": 950})
             page.goto(base, wait_until="networkidle")
+            # Browser regression is offline even when a local .env key exists.
+            page.wait_for_function("document.querySelector('#planner-hint').textContent !== '检查模型配置…'")
+            page.select_option("#p-planner", "mock")
 
             # 1-3 成功管线（含一次自动重试）+ GIF + ZIP
             page.click('button[data-preset="transient"]')

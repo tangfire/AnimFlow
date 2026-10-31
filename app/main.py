@@ -138,6 +138,33 @@ def create_app(cfg: Config | None = None) -> FastAPI:
 
     # ---- 资源 ------------------------------------------------------------
 
+    @app.get("/api/planner")
+    def planner_config() -> dict[str, Any]:
+        import os
+        return {"deepseek_configured": bool(os.environ.get("DEEPSEEK_API_KEY", "").strip()),
+                "default_model": "deepseek-flash", "modes": ["mock", "deepseek"]}
+
+    @app.get("/api/jobs/{job_id}/motion-plan")
+    def motion_plan(job_id: str):
+        try:
+            detail = repo.get_job_detail(job_id)
+        except LookupError:
+            return _error(404, "NOT_FOUND", "任务不存在")
+        step = next(s for s in detail["steps"] if s["name"] == "plan_motion")
+        for artifact in step["artifacts"]:
+            if artifact["kind"] != "motion_plan":
+                continue
+            rec = repo.get_artifact_record(artifact["id"])
+            problems = repo.verify_artifact_for_download(artifact["id"])
+            if problems:
+                return _error(409, "ARTIFACT_INVALID", "动作规划产物损坏")
+            path = resolve_under_root(cfg.artifacts_dir, rec["relative_path"])
+            if path is None or path.stat().st_size > 64 * 1024:
+                return _error(409, "ARTIFACT_INVALID", "动作规划产物超出限制")
+            return {"ready": True, "artifact_id": artifact["id"],
+                    "plan": json.loads(path.read_text(encoding="utf-8"))}
+        return {"ready": False, "plan": None}
+
     @app.get("/api/resources")
     def resources() -> dict[str, Any]:
         return repo.list_resources()

@@ -96,3 +96,20 @@ P0 的 `resource_slots` 持久化 CPU 槽位与一个 `mock-gpu-0`，**实际限
 通用 DAG 编辑器、登录权限、任意文件上传与外部 URL 抓取、跨机器 Worker、真实 GPU 调度、
 跨任务全局缓存、WebSocket/SSE、暂停/取消、真实视频模型推理。
 `demo_fault` 仅在本地/演示开启；`ANIMFLOW_FAULTS_ENABLED=0` 可关闭，接口只接受受限预设，不开放任意 kill 或代码执行。
+
+## 8. 真实模型适配（2026-11-01）
+
+`plan_motion` 按持久化输入选择 MOCK / DeepSeek，HTTP 调用只在步骤子进程里进行，不阻塞监督进程续租。
+每 attempt 一个 HTTP 请求，无内部重试；网络读超时 35 秒，步骤墙钟期限 60 秒由监督进程强制结束兜底。
+缺配置/鉴权/额度错误不可重试；429、5xx、网络故障、空/截断/Schema 非法输出可按原预算重试。
+真实模式失败从不伪造成功或降级 MOCK。只接受有限运动原语/颜色/数值，不执行模型生成代码。
+
+`motion_plan.json` 包含校验后的方案、provider/model/request_id/prompt_version/latency_ms/usage；不存 API Key、HTTP headers 或推理过程。
+Key 从本地被忽略的 `.env` 加载到环境变量，仅留在进程内。新输入包含 mode/model/brief，提示词版本进入指纹。
+Worker 下游指纹额外包含上游实际 artifact SHA-256，避免非确定模型仅有相同输入血缘却没有内容身份。
+管线版本升为 1.1.0，旧版未完成任务明确失败，不对旧任务静默应用新渲染逻辑。
+
+已提交的成功规划在下游失败/重启后复用，因此不会再次消耗 token。API 响应丢失、调用后数据库发布前崩溃仍可能重投并计费，
+这是外部服务副作用，attempt fencing 不能撤销已发生的消费。不声称模型推理 exactly-once。
+DeepSeek request_id 仅作观测关联，不视为可用来恢复查询的外部任务 ID。
+运行时 token 是 provider 返回的实际应用用量，与本项目 AI coding 工具消耗的 token 分开统计。

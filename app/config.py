@@ -69,6 +69,9 @@ class Config:
 
 
 def load_config() -> Config:
+    # Local developer secret; never persisted in jobs or sent to the browser.
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
     data_dir = Path(os.environ.get("ANIMFLOW_DATA_DIR", "data")).resolve()
     db_path = Path(os.environ.get("ANIMFLOW_DB_PATH", str(data_dir / "animflow.db"))).resolve()
     artifacts_dir = Path(

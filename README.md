@@ -9,11 +9,17 @@
 > **诚实边界**：本项目提供 **at-least-once（至少一次）** 执行语义，**不是 exactly-once**；
 > 恢复是**步骤边界级**（单步中断整步重跑，没有分帧断点续算）；
 > GPU 是**数据库逻辑预约槽位**，不是真实显卡隔离，不采集显存/温度等真实指标；
-> AI 与 GPU 计算是**确定性模拟（MOCK）**，演示素材由程序生成。
+> 动作规划可选 **真实 DeepSeek** 或离线 MOCK；模型输出实际控制运动与配色。
+> 图像由 Pillow 渲染，GPU 仍为模拟槽位，不是 AI 视频生成服务。
+
+![真实 DeepSeek 规划后生成的 GIF](docs/assets/deepseek-orbit-demo.gif)
+
+[对照产物：橙色光球弹跳](docs/assets/deepseek-bounce-demo.gif)（也是独立真实 DeepSeek 请求）。
 
 ## 功能
 
-- 固定六步 DAG：`inspect_asset → extract_frames → plan_motion → stylize_frames → render_preview → package_artifact`
+- 固定六步 DAG：`inspect_asset → (extract_frames ∥ plan_motion) → stylize_frames → render_preview → package_artifact`
+- DeepSeek JSON 动作规划，Schema 校验；看板展示模型、请求 ID、耗时与 provider 返回的 token 用量
 - 持久任务/步骤/attempt 状态机，事务化领取与发布，步骤级有界重试（默认每轮 3 次）
 - 独立 Worker 监督循环 + spawn 子进程：心跳续租、墙钟超时、过期租约回收
 - 真实产物：PNG 帧 → 风格变换 → 可播放的多帧 GIF → ZIP（均带 manifest 与 SHA-256）
@@ -27,8 +33,8 @@
 | --- | --- |
 | Python | 3.12（实测 3.12.4；其他 3.12.x 应可用） |
 | 操作系统 | Windows / macOS / Linux（硬杀命令按平台分支） |
-| 依赖 | fastapi、uvicorn、pillow、pydantic（运行）；pytest、httpx（测试） |
-| 外部服务 | 无。不需要模型密钥、GPU、Redis 或 Docker |
+| 依赖 | fastapi、uvicorn、pillow、pydantic、python-dotenv（运行）；pytest、httpx（测试） |
+| 外部服务 | MOCK 无需外部服务；真实规划需要 DeepSeek Key/额度。不需要本地 GPU、Redis 或 Docker |
 
 ## 安装
 
@@ -58,12 +64,13 @@ python -m venv .venv
 
 ## 运行测试
 
+pytest 和普通浏览器回归始终走离线 MOCK，不调用付费模型。真实模型验证需要显式运行 `scripts/live_demo.py`。
+
 ```bash
 .venv\Scripts\python.exe -m pytest tests/ -q
 ```
 
-实测：**45 passed in ~98s**（2026-10-31，Windows 11 / Python 3.12.4 / SQLite 3.45.3；
-其中 38 项为修复轮之前的原有套件，7 项为外部复核问题的回归用例）。
+原恢复验收套件为 45 项；2026-11-01 新增 30 项模型接入测试（当前共 75 项），最新实际结果见测试报告。
 覆盖 A01–A14 全部 P0 验收项，含真实跨进程硬杀恢复与失效窗口测试。
 证据与逐项对照见 [docs/test-report.md](docs/test-report.md)。
 
@@ -87,6 +94,44 @@ python -m venv .venv
 
 浏览器演示步骤见 [docs/demo-script.md](docs/demo-script.md) 第 4 节。
 
+## 真实 DeepSeek 与录制
+
+在项目根目录把 `.env.example` 复制为 `.env`，只在本机填写 `DEEPSEEK_API_KEY`，API 与 Worker 启动时自动加载。
+`.env` 被 Git 忽略；仓库不包含实际密钥。不向浏览器传 Key，也不要在录屏中打开该文件。
+
+看板会在本机配置 Key 后默认选择真实 DeepSeek；仍可手动选 MOCK。用动画要求描述光球运动与配色，
+例如“橙色光球上下弹跳，深紫背景，金色光环”。渲染器只支持光球、光环及五种运动原语，不能任意生成角色/场景。
+新任务将 `planner_mode`、`planner_model`、`brief` 持久化到输入，运行中的任务不会因 UI 切换模式而改变。
+实时规划 JSON 可在页面查询/下载，下游会实际应用 motion、speed、intensity 与三种颜色。
+
+两个 PowerShell 终端分别运行（共享隔离的 `data/recording`；租约 3 秒）：
+
+```powershell
+cd D:\AnimFlow
+powershell -ExecutionPolicy Bypass -File .\scripts\recording.ps1 api
+# 另一个终端：
+powershell -ExecutionPolicy Bypass -File .\scripts\recording.ps1 worker
+```
+
+浏览器打开 `http://127.0.0.1:8000/`。录制时先展示“真实 DeepSeek”规划卡和 GIF，再演示下游失败重试，
+指出 plan_motion 的 attempt 仍为 1。**已经发布的规划可复用；模型响应丢失或发布前崩溃仍可能重复调用/计费。**
+真实模式错误不会静默降级：401/403/402 与缺配置直接失败，429/5xx/网络/无效 JSON 由任务预算有界重试。
+每 attempt 只发一次请求，无 SDK 隐式重试；网络读取期限 35 秒，步骤 deadline 默认 60 秒由监督进程兜底。
+
+显式付费验证（启动 API 测试客户端与真实 Worker，验证下游失败后规划复用）：
+
+```powershell
+.venv\Scripts\python.exe scripts\live_demo.py
+# 下列命令只查看已发布真实任务，不再次调用模型（需要可选 Playwright）：
+.venv\Scripts\python.exe scripts\browser_live_check.py
+```
+
+实测证据：[模型用量与复用](docs/evidence/deepseek-live-2026-11-01.json)、
+[看板截图](docs/assets/deepseek-dashboard.png)。首次真实规划输入 561 / 输出 111 / 总计 672 tokens，耗时 2125ms；
+这是应用运行用量，与开发智能体使用的 token 是两回事。
+
+管线版本已升为 1.1.0；老 1.0.0 的历史成功任务仍可查询/下载，未完成老版本任务会明确拒绝执行，请新建任务。
+
 ## 关键 API
 
 | 方法与路径 | 说明 |
@@ -98,6 +143,8 @@ python -m venv .venv
 | `GET /api/jobs/{id}/events?after_id&limit` | 增量事件；**以返回的 `next_after_id` 继续，不重不漏** |
 | `POST /api/jobs/{id}/retry` | 仅 `FAILED` 可人工重试，可带 `{"clear_fault": true}`；其他状态 `409` |
 | `GET /api/resources` | CPU/GPU 槽位与 holder（含是否过期）；指标标注「未采集 / MOCK」 |
+| `GET /api/planner` | 可用模式与服务端是否配置 Key（不返回 Key，不代表 Worker 已联通） |
+| `GET /api/jobs/{id}/motion-plan` | 已发布且摘要有效的动作规划与模型元信息；未生成时 ready=false |
 | `GET /api/artifacts/{id}/download` | 按记录下载，下载前全量校验摘要；损坏返回 `409 ARTIFACT_INVALID` |
 | `GET /healthz` | API 存活 + 数据库连通（**不等价于有 Worker**） |
 

@@ -16,5 +16,7 @@ build/
 
 # 本地密钥与个人文件
 .env
+.env.*
+!.env.example
 *.key
 .DS_Store

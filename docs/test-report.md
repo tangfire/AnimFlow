@@ -3,6 +3,9 @@
 区分标注：**自动化测试**（pytest，可重复）与**手工演示**（脚本/人工操作）。
 所有统计来自真实输出，未做推算；token 与个人工时不从测试数量折算。
 
+2026-11-01 新增真实 DeepSeek 适配（管线 1.1.0）：最新报告见文末第 8 节。
+下列 2026-10-31 的 45 项结果和冷启动记录作为历史保留，不代表后续新增适配也做过同一次冷启动。
+
 ## 1. 实际运行环境
 
 | 项 | 值 |
@@ -25,7 +28,7 @@ python -m venv .venv
 .venv/Scripts/python.exe -m pytest tests/ -q
 ```
 
-**结果：`45 passed, 1 warning in 97.93s`**（2026-10-31，正确性修复轮后的最终数字）
+**历史结果：`45 passed, 1 warning in 97.93s`**（2026-10-31，正确性修复轮）
 证据：`docs/evidence/pytest-full-2026-10-31.txt`（`-v` 完整输出）
 唯一的 warning 是 `fastapi/testclient` 的 `StarletteDeprecationWarning`（建议安装 `httpx2`），与本项目逻辑无关。
 
@@ -164,3 +167,30 @@ P0 全部有实测证据，无跳过、无 `xfail`。
 - **单机 SQLite**：只适合同机本地持久化；不应把 WAL 放在跨主机网络文件系统上。
 - 崩溃留下的孤儿产物目录保留未清理，便于排查，但会占用磁盘。
 - `tests/test_resources.py` 未单独建文件（见第 2 节说明）。
+
+## 8. 2026-11-01 DeepSeek 接入验证（当前结果）
+
+- 全套离线测试：**75 passed, 1 warning in 123.18s**；证据 `docs/evidence/pytest-deepseek-2026-11-01.txt`。
+  原恢复/接口套件 45 项 + `tests/test_planner.py` 30 项。无付费 API 请求，无 skip/xfail。
+- 30 项适配测试包含：JSON 契约、usage、无隐式重试、401/403/402/429/503/400 分类、超时、无 Key、错误地址、
+  空/截断/非法/超大响应、真实模式不降级、三次限流耗尽任务预算、方案改变实际像素、四风格滤镜、
+  输入长度/模式/模型约束、实际上游内容进入指纹、持久化规划查询和损坏检测。
+  完整测试后又强化了“限流耗尽预算”用例的仓储状态断言，30 项适配测试再运行 **30 passed in 1.48s**，
+  证据 `docs/evidence/pytest-planner-2026-11-01.txt`。
+- 原浏览器脚本在新界面明确选择 MOCK：**11/11 PASS**（本轮终端实际输出；该次未另存全文），不因本机 `.env` 存在而意外付费。
+- 真实已发布任务的 Chromium 验证：**4/4 PASS**，模型/用量/运动展示、GIF 解码、已配置本机默认真实模式、无 JS page errors。
+  脚本 `scripts/browser_live_check.py` 只启动临时 API 读取现有任务，不再请求模型。
+  证据 `docs/evidence/browser-deepseek-2026-11-01.txt`，截图 `docs/assets/deepseek-dashboard.png`。
+- 显式付费端到端：`scripts/live_demo.py`，真实 Worker spawn，任务 `61628b692b70416c862bee242d522015`。
+  DeepSeek 返回 motion=orbit，2125ms，输入 561 / 输出 111 / 总计 672 tokens；styled 故障耗尽三次后人工 retry，
+  plan_motion 仍只有一次 attempt，artifact_id 未变；最终 36 帧 GIF 可解码、ZIP CRC 完整。
+  证据 `docs/evidence/deepseek-live-2026-11-01.json`，产物 `docs/assets/deepseek-orbit-demo.gif`。
+- 对照真实请求：“橙色光球上下弹跳，深紫背景，金色光环”，返回 motion=bounce、橙色/金色，
+  1641ms、566+108=674 tokens；同样验证下游失败后规划 attempt=1、36 帧 GIF 与 ZIP 完整。
+  证据 `docs/evidence/deepseek-contrast-2026-11-01.json`，产物 `docs/assets/deepseek-bounce-demo.gif`。
+  两次真实应用请求合计 1346 tokens（非 AI coding token）；模型返回的方案和实际渲染不同，未伪造 MOCK 成果。
+- 全新 venv 安装 requirements-dev 成功，30 项模型适配测试 **30 passed in 1.22s**，
+  证据 `docs/evidence/coldstart-model-tests-2026-11-01.txt`。本轮新环境只重跑适配套件，未把它表述为新克隆全量验收。
+
+调用只证明本次真实服务可用，不保证未来网络、额度或模型别名不变。公开仓库不含实际 Key；
+新的真实 API 依赖为可选运行模式，评审无需 Key 即可复现全部自动化测试。

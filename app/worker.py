@@ -194,7 +194,11 @@ class Supervisor:
             row = self.repo.step_row(claim.job_id, dep)
             if row is None or not row.get("output_fingerprint"):
                 raise RuntimeError(f"上游 {dep} 无输出指纹，不可计算 {claim.step_name} 指纹")
-            upstream[dep] = row["output_fingerprint"]
+            # Include actual content: LLM output is not deterministic.
+            upstream[dep] = json.dumps({
+                "lineage": row["output_fingerprint"],
+                "artifacts": sorted(a["sha256"] for a in claim.upstream[dep]["artifacts"]),
+            }, sort_keys=True)
         return pipeline.compute_fingerprint(
             claim.step_name, claim.step_version, claim.input_params, upstream,
         )

@@ -65,7 +65,7 @@ async function createJob(params, fault) {
     const body = await api("/api/jobs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ params, demo_fault: fault }),
+      body: JSON.stringify({ params: { ...currentFormParams(), ...params }, demo_fault: fault }),
     });
     msg.textContent = `已提交 ${shortId(body.id)}`; msg.className = "msg ok";
     selectJob(body.id);
@@ -83,6 +83,9 @@ function currentFormParams() {
     fps: Number($("#p-fps").value),
     style: $("#p-style").value,
     seed: Number($("#p-seed").value),
+    planner_mode: $("#p-planner").value,
+    planner_model: "deepseek-flash",
+    brief: $("#p-brief").value,
   };
 }
 
@@ -135,6 +138,7 @@ function selectJob(jobId) {
   state.eventsAfterId = 0;
   state.events = [];
   $("#d-events").innerHTML = "";
+  $("#d-plan").textContent = "等待动作规划产物…";
   $("#event-count").textContent = "";
   const url = new URL(location);
   url.searchParams.set("job_id", jobId);
@@ -231,6 +235,7 @@ function renderDetail(job) {
   }).join("");
 
   // 产物
+  renderPlan(job.id);
   const arts = [];
   job.steps.forEach((s) => s.artifacts.forEach((a) => arts.push({ ...a, step: s.name })));
   if (!arts.length) {
@@ -260,6 +265,32 @@ function renderDetail(job) {
   renderAttempts(job.id);
   // 事件增量
   pollEvents();
+}
+
+async function renderPlan(jobId) {
+  const token = state.jobToken;
+  try {
+    const data = await api(`/api/jobs/${jobId}/motion-plan`);
+    if (token !== state.jobToken || jobId !== state.selectedJobId) return;
+    if (!data.ready) {
+      $("#d-plan").textContent = "等待动作规划产物…（真实调用失败会显示步骤错误）";
+      return;
+    }
+    const p = data.plan;
+    const usage = p.usage;
+    $("#d-plan").innerHTML = `
+      <strong>${esc(p.title)}</strong>
+      <p>${esc(p.explanation)}</p>
+      <div><span class="badge ${p.provider === "deepseek" ? "green" : "gray"}">${p.provider === "deepseek" ? "真实 DeepSeek" : "MOCK"}</span>
+      ${esc(p.model)} · ${esc(p.latency_ms)} ms · prompt ${esc(p.prompt_version)}</div>
+      <p>运动 <code>${esc(p.motion)}</code> · 幅度 ${esc(p.intensity)} · 速度 ${esc(p.speed)}</p>
+      <p>配色 ${[p.background_color, p.accent_color, p.secondary_color].map(c =>
+        /^#[0-9a-f]{6}$/i.test(c) ? `<span style="display:inline-block;background:${c};width:18px;height:18px;vertical-align:middle;border:1px solid #888"></span> ${esc(c)}` : esc(c)).join(" · ")}</p>
+      <div>${usage ? `tokens：输入 ${esc(usage.prompt_tokens ?? "未返回")} / 输出 ${esc(usage.completion_tokens ?? "未返回")} / 合计 ${esc(usage.total_tokens ?? "未返回")}` : "MOCK：无模型 token 消耗"}</div>
+      <div class="mono dim">request_id ${esc(p.request_id || "无")}</div>`;
+  } catch (e) {
+    if (token === state.jobToken) $("#d-plan").textContent = `规划查询失败：${e.message}`;
+  }
 }
 
 async function renderAttempts(jobId) {
@@ -331,6 +362,12 @@ async function refreshResources() {
 /* ---------- 启动轮询 ---------- */
 
 function startPolling() {
+  api("/api/planner").then(data => {
+    $("#p-planner").value = data.deepseek_configured ? "deepseek" : "mock";
+    $("#planner-hint").textContent = data.deepseek_configured
+      ? "服务端已配置 Key，默认真实 DeepSeek；需要同时重启 API 和 Worker 使配置生效。"
+      : "服务端未配置 Key，默认离线 MOCK。真实模式不会自动降级。";
+  }).catch(() => { $("#planner-hint").textContent = "配置查询失败，可手动选择规划模式。"; });
   refreshJobs();
   refreshResources();
   state.timers.list = setInterval(refreshJobs, 2000);

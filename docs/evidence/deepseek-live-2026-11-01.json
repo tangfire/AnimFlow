@@ -1,0 +1,31 @@
+{
+  "job_id": "61628b692b70416c862bee242d522015",
+  "plan": {
+    "accent_color": "#38e8ff",
+    "background_color": "#0a1030",
+    "explanation": "深蓝背景突出青蓝光球，紫色光环围绕其旋转，轨道式环绕运动与霓虹科技风格相呼应；强度与速度适中，营造稳定冷静的科技感。",
+    "intensity": 0.6,
+    "latency_ms": 2125,
+    "model": "deepseek-flash",
+    "motion": "orbit",
+    "prompt_version": "motion-json-v1",
+    "provider": "deepseek",
+    "request_id": "f2102942-dd81-49c4-8b5b-dd6291aaaa67",
+    "requested_model": "deepseek-flash",
+    "secondary_color": "#a34cff",
+    "speed": 1.1,
+    "title": "青蓝光球轨道环绕",
+    "usage": {
+      "completion_tokens": 111,
+      "prompt_cache_hit_tokens": 0,
+      "prompt_tokens": 561,
+      "total_tokens": 672
+    }
+  },
+  "plan_attempt_count": 1,
+  "reused_artifact_id": "d5529201f8154baeb6bcc3d59fbf2d08",
+  "gif_path": "docs/assets/deepseek-orbit-demo.gif",
+  "frames": 36,
+  "status": "SUCCEEDED",
+  "test": "real API + Worker + downstream retry"
+}

@@ -171,6 +171,7 @@ class Repository:
         params = dict(params)
         if demo_fault is None and "demo_fault" in params:
             demo_fault = params.pop("demo_fault")
+        params = pipeline.normalize_input(params)
         fault = demo_fault or {}
         input_json = json.dumps(
             {"params": params, "demo_fault": fault}, ensure_ascii=True, sort_keys=True
@@ -587,6 +588,7 @@ class Repository:
                             "relative_path": a["relative_path"],
                             "absolute_path": str((self.artifacts_root / a["relative_path"]).resolve()),
                             "kind": a["kind"],
+                            "sha256": a["sha256"],
                             "manifest": json.loads(a["manifest_json"]),
                         }
                         for a in darts

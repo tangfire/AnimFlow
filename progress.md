@@ -88,3 +88,17 @@
 
 ## 下一步
 - 向用户汇报；个人信息/工时/token 待本人补充。
+
+## 2026-11-01 用户授权真实 DeepSeek 接入
+
+- 用户在本会话明确要求真实调用，密钥保存本地 `.env`，已确认被 Git 忽略；不写入仓库/任务/前端。
+- 新增 JSON Schema 动作规划适配：DeepSeek/MOCK 双模式，无内部重试，错误分类由持久任务预算负责。
+- 方案实际改变 Pillow 光球运动/配色，看板显示真实 provider/model/latency/usage/request_id。
+- pipeline 1.1.0、下游指纹加入实际上游 SHA-256，旧版未完成任务拒绝混跑。
+- 实测 live_demo：请求 2125ms、561+111=672 tokens；连续下游失败后人工 retry 保留原模型 attempt/artifact，36 帧 GIF 与 ZIP 有效。
+- Chromium 已验证真实规划/用量展示和 GIF 解码；原浏览器回归选择 MOCK，11/11 PASS，避免测试付费。
+- 新增 30 项离线模型测试。完整验证结果与证据见 docs/test-report.md 第8节。
+- 录制启动：scripts/recording.ps1 api / worker；保留隔离数据，不清用户旧历史。
+- 验证命令：`python -m pytest tests/ -q` → 75 passed in 123.18s；强化限流预算断言后 `tests/test_planner.py` → 30 passed in 1.48s。
+- 新 venv 安装成功 + 30 模型测试 passed in 1.22s；浏览器真实任务回看 4/4 PASS。
+- 第二次真实对照请求返回 bounce/橙色配色，1641ms、674 tokens，最终36帧GIF可解码；两次运行总应用用量1346 tokens。

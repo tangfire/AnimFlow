@@ -13,7 +13,7 @@
   </header>
 
   <div class="notice">
-    演示素材由程序生成（demo_asset_v1）；<strong>AI 与 GPU 计算为模拟</strong>，
+    素材由程序生成；<strong>动作规划支持真实 DeepSeek / MOCK，Pillow 按方案渲染</strong>，
     GPU 槽位是数据库逻辑预约，不是真实显卡隔离。状态全部来自 API 查询，刷新页面可恢复。
   </div>
 
@@ -22,6 +22,14 @@
     <section class="col-left">
       <div class="card">
         <h2>创建任务</h2>
+        <label>动作规划
+          <select id="p-planner"><option value="mock">MOCK（离线）</option>
+            <option value="deepseek">DeepSeek（真实调用）</option></select>
+        </label>
+        <div id="planner-hint" class="hint">检查模型配置…</div>
+        <label style="display:block;margin:10px 0">动画要求（光球运动与配色）
+          <textarea id="p-brief" rows="3" maxlength="500" style="width:100%;box-sizing:border-box">青蓝色光球沿圆形轨道移动，深蓝背景，紫色光环，科技感</textarea>
+        </label>
         <div class="presets">
           <button data-preset="ok" class="preset">成功管线</button>
           <button data-preset="transient" class="preset">瞬时失败→自动重试</button>
@@ -34,8 +42,8 @@
           <div class="form-grid">
             <label>宽 <input type="number" id="p-width" value="256" min="16" max="512"></label>
             <label>高 <input type="number" id="p-height" value="256" min="16" max="512"></label>
-            <label>帧数 <input type="number" id="p-frames" value="12" min="1" max="48"></label>
-            <label>fps <input type="number" id="p-fps" value="25" min="1" max="50"></label>
+            <label>帧数 <input type="number" id="p-frames" value="36" min="1" max="48"></label>
+            <label>fps <input type="number" id="p-fps" value="12" min="1" max="50"></label>
             <label>风格
               <select id="p-style">
                 <option value="neon">neon</option>
@@ -90,6 +98,11 @@
         <div class="card">
           <h2>步骤（固定 DAG）</h2>
           <div id="d-steps" class="steps"></div>
+        </div>
+
+        <div class="card">
+          <h2>动作规划与模型用量</h2>
+          <div id="d-plan" class="hint">等待动作规划产物…</div>
         </div>
 
         <div class="card">

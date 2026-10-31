@@ -14,9 +14,9 @@ from typing import Any
 from app.domain import DomainError
 
 PIPELINE_NAME = "demo_asset_pipeline"
-PIPELINE_VERSION = "1.0.0"
+PIPELINE_VERSION = "1.1.0"
 # 演示“模型”版本：确定性 MOCK 计算的版本标识，进入业务指纹
-DEMO_MODEL_VERSION = "mock-deterministic-v1"
+DEMO_MODEL_VERSION = "motion-json-v1"
 
 # Worker 声明支持的 pipeline 版本（与 jobs.pipeline_version 同构）；
 # 快照不在此集合 → 任务级 fatal
@@ -132,9 +132,13 @@ DEFAULT_INPUT: dict[str, Any] = {
     "fps": 25,
     "style": "neon",
     "seed": 42,
+    "planner_mode": "mock",
+    "planner_model": "deepseek-flash",
+    "brief": "霓虹色光球，沿圆形轨道缓慢移动",
 }
 
-BUSINESS_KEYS = ("width", "height", "frame_count", "fps", "style", "seed")
+BUSINESS_KEYS = ("width", "height", "frame_count", "fps", "style", "seed",
+                 "planner_mode", "planner_model", "brief")
 
 
 class InputInvalid(DomainError):
@@ -158,10 +162,17 @@ def normalize_input(raw: dict[str, Any]) -> dict[str, Any]:
             raise InputInvalid("INPUT_INVALID", f"{key} 必须是整数，实际 {v!r}")
         if not (lo <= v <= hi):
             raise InputInvalid("INPUT_INVALID", f"{key} 必须在 [{lo}, {hi}]，实际 {v}")
-    if merged["style"] not in STYLE_CHOICES:
+    if not isinstance(merged["style"], str) or merged["style"] not in STYLE_CHOICES:
         raise InputInvalid(
             "INPUT_INVALID", f"style 必须是 {list(STYLE_CHOICES)} 之一，实际 {merged['style']!r}"
         )
+    if merged["planner_mode"] not in ("mock", "deepseek"):
+        raise InputInvalid("INPUT_INVALID", "planner_mode 必须是 mock 或 deepseek")
+    if merged["planner_model"] not in ("deepseek-flash", "deepseek-v4-pro"):
+        raise InputInvalid("INPUT_INVALID", "planner_model 必须是 deepseek-flash 或 deepseek-v4-pro")
+    if not isinstance(merged["brief"], str) or not (1 <= len(merged["brief"].strip()) <= 500):
+        raise InputInvalid("INPUT_INVALID", "brief 必须为 1～500 字的动画描述")
+    merged["brief"] = merged["brief"].strip()
     return merged
 
 

@@ -17,7 +17,7 @@ python -m venv .venv
 .venv/Scripts/python.exe -m pytest tests/ -q
 ```
 
-期望：`45 passed`（38 项原有 + 7 项正确性修复回归）。`-v` 可看每个用例名；
+期望：`75 passed`（45 项恢复/接口测试 + 30 项模型接入测试，均离线）。`-v` 可看每个用例名；
 完整输出可存档到 `docs/evidence/`。
 
 ## 2. 硬杀恢复（约 30 秒，A04/A09 的手工版）
@@ -242,7 +242,38 @@ $env:ANIMFLOW_LEASE_S="2"; $env:ANIMFLOW_HEARTBEAT_S="0.5"; $env:ANIMFLOW_POLL_S
 
 - **操作**：镜头回到看板总览；可顺手 `Ctrl+R` 刷新页面展示状态从数据库恢复。
 - **预期画面**：刷新后任务列表、选中任务、事件与 attempt 历史原样恢复。
-- **讲解要点**：「45 项自动化测试全绿，含真实跨进程硬杀与失效窗口；
+- **讲解要点**：「自动化测试覆盖真实跨进程硬杀、失效窗口及模型接入；最新结果见测试报告。
   边界如实标注：单机 SQLite、模拟 GPU 槽位、步骤边界恢复。测试与证据见仓库 docs/test-report.md。」
 
 总时长约 5 分 45 秒。若时间紧，可砍掉第 5 段（GPU 争抢）压到 5 分钟内。
+
+## 7. 真实 DeepSeek 录制版（2026-11-01）
+
+前述步骤与截图是原 MOCK 演示的流程；真实模式按下列新流程录制，避免仍宣称“AI 全是模拟”。
+本机 `.env` 已配置时无需再输入 Key，不要展示文件或密钥控制台。
+
+两个 PowerShell 窗口：
+
+```powershell
+cd D:\AnimFlow
+powershell -ExecutionPolicy Bypass -File .\scripts\recording.ps1 api
+# 另一个窗口：
+cd D:\AnimFlow
+powershell -ExecutionPolicy Bypass -File .\scripts\recording.ps1 worker
+```
+
+浏览器访问 `http://127.0.0.1:8000/`，确认“DeepSeek（真实调用）”。推荐录像顺序：
+
+1. 输入“青蓝色光球绕圆形轨道运动，深蓝背景，紫色光环”，点成功管线。
+2. 完成后展示“真实 DeepSeek”、JSON 方案、request_id、耗时、输入/输出 token 与 GIF。说明模型负责规划，Pillow 负责画面，GPU 仍模拟。
+3. 改成“橙色光球上下弹跳，深紫背景，金色光环”，点成功管线。比较方案的 motion/颜色与真实画面变化。
+4. 点“永久失败→人工重试”，模型规划成功后只在风格处理失败。清故障并重试，指出 plan_motion attempt=1、request_id 不变，重试未重复调用已成功的规划。
+5. 硬杀恢复可先切 MOCK 以免录制过程多耗模型额度，或保留真实模式、等 plan_motion 已成功且 stylize RUNNING 时再硬杀自己启动的 Worker。
+   用同一 recording.ps1 worker 重启，查看 WORKER_LOST → 新 stylize attempt → 成功，规划仍复用。
+
+录像脚本租约为 3 秒，识别失联与开始重试的时间取决于剩余租约/重启/轮询/退避，不承诺固定 2 秒完成整个任务。
+真实调用可能限流/超时；出现错误如实展示，不能把 MOCK 结果说成真实模型。再次调用可能付费；已成功规划可复用不等于外部服务计费 exactly-once。
+画面能力限定为光球/光环/配色/运动原语，不能将它描述成通用文生视频。
+
+显式自动验证：`.venv\Scripts\python.exe scripts\live_demo.py`；只重看已完成真实任务（不新调用）：
+`.venv\Scripts\python.exe scripts\browser_live_check.py`。

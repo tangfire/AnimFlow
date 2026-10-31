@@ -1,7 +1,7 @@
 """六步演示管线的计算实现（子进程内执行）。
 
 真实产物：Pillow 生成 PNG 帧 → 确定性风格变换 → 真实 GIF → 真实 ZIP。
-AI 与 GPU 计算为 MOCK：确定性算法，无模型密钥、无真实显卡。
+动作规划可选择 DeepSeek 或确定性 MOCK；图像处理使用 Pillow，GPU 为模拟槽位。
 
 约定：
 - 只读取不可变输入与成功上游的产物清单；只写本次 attempt 独享目录；
@@ -39,6 +39,7 @@ from app.domain import (
     ERR_TRANSIENT_FAULT,
 )
 from app.pipeline import compute_fingerprint
+from app.planner import MotionPlan, PlannerError, deepseek_plan, mock_plan
 
 
 class RetryableStepError(Exception):
@@ -238,7 +239,7 @@ def _stylize_image(img, style: str, seed: int, frame_idx: int):
         img = ImageEnhance.Color(img).enhance(0.85)
         img = img.quantize(colors=64, method=Image.Quantize.MEDIANCUT).convert("RGB")
     elif style == "comic":
-        img = img.filter(ImageFilter.FindEdges)
+        img = img.filter(ImageFilter.FIND_EDGES)
         base = img.filter(ImageFilter.SMOOTH)
         img = ImageEnhance.Contrast(base).enhance(2.2)
         img = ImageOps.posterize(img, 4)
@@ -250,6 +251,50 @@ def _stylize_image(img, style: str, seed: int, frame_idx: int):
     else:  # pragma: no cover - 输入已校验
         raise NonRetryableStepError("BAD_OUTPUT", f"未知风格 {style}")
     return img
+
+
+def apply_motion_plan(img, plan: dict, frame_idx: int, frame_count: int):
+    """Draw bounded motion primitives from the plan; no model-generated code."""
+    from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageOps
+
+    w, h = img.size
+    def rgb(hex_color):
+        return tuple(int(hex_color[i:i + 2], 16) for i in (1, 3, 5))
+    bg, accent, secondary = (rgb(plan[k]) for k in
+                             ("background_color", "accent_color", "secondary_color"))
+    canvas = Image.new("RGB", img.size, bg)
+    texture = ImageOps.colorize(ImageOps.grayscale(img), bg, secondary)
+    canvas = Image.blend(canvas, texture, 0.22)
+    t = frame_idx / max(frame_count, 1)
+    phase = 2 * math.pi * t * plan["speed"]
+    travel = min(w, h) * 0.32 * plan["intensity"]
+    cx, cy = w / 2, h / 2
+    radius = min(w, h) * 0.13
+    motion = plan["motion"]
+    if motion == "orbit":
+        cx += travel * math.cos(phase)
+        cy += travel * math.sin(phase)
+    elif motion in ("pan_left", "pan_right"):
+        direction = -1 if motion == "pan_left" else 1
+        cx += direction * travel * math.sin(phase)
+    elif motion == "bounce":
+        cy += travel * math.cos(phase)
+        cx += travel * 0.4 * math.sin(phase)
+    elif motion == "zoom_in":
+        radius *= 1 + plan["intensity"] * (0.5 + 0.5 * math.sin(phase))
+    glow = Image.new("RGB", img.size, (0, 0, 0))
+    gd = ImageDraw.Draw(glow)
+    gd.ellipse((cx-radius*1.6,cy-radius*1.6,cx+radius*1.6,cy+radius*1.6),fill=accent)
+    canvas = ImageChops.add(canvas, glow.filter(ImageFilter.GaussianBlur(max(1, radius*.6))))
+    draw = ImageDraw.Draw(canvas)
+    for ring in (1.8, 2.5):
+        r = radius * ring
+        draw.ellipse((cx-r,cy-r,cx+r,cy+r),outline=secondary,width=max(1,w//170))
+    draw.ellipse((cx-radius,cy-radius,cx+radius,cy+radius),fill=accent)
+    highlight = radius * 0.22
+    draw.ellipse((cx-radius*.4-highlight,cy-radius*.4-highlight,
+                  cx-radius*.4+highlight,cy-radius*.4+highlight),fill=(255,255,255))
+    return canvas
 
 
 # ---- 六个步骤 -----------------------------------------------------------
@@ -327,26 +372,14 @@ def step_plan_motion(ctx: StepContext) -> list:
     ctx.maybe_inject_failure()
     ctx.maybe_exit_early()
     ctx.maybe_hang()
-    ctx.progress(0, 2, "确定性动作规划（模拟 AI）")
     p = ctx.params
-    rng = random.Random(p["seed"] ^ 0xA11CE)
-    plan = {
-        "model": "mock-deterministic-v1",
-        "note": "模拟 AI 规划：无真实模型调用，输出由 seed 确定",
-        "style": p["style"],
-        "keyframes": [
-            {
-                "frame": int(p["frame_count"] * k / 4),
-                "motion": rng.choice(["pan_left", "pan_right", "zoom_in", "orbit", "bounce"]),
-                "intensity": round(0.3 + 0.6 * rng.random(), 3),
-            }
-            for k in range(4)
-        ],
-        "easing": rng.choice(["ease_in_out", "linear", "bounce_out"]),
-        "style_notes": [
-            rng.choice(["提高对比", "压低饱和", "加边缘光", "帧间抖动"]) for _ in range(3)
-        ],
-    }
+    real = p.get("planner_mode", "mock") == "deepseek"
+    ctx.progress(0, 2, "等待 DeepSeek 真实动作规划" if real else "确定性动作规划（MOCK）")
+    try:
+        plan = deepseek_plan(p) if real else mock_plan(p)
+    except PlannerError as exc:
+        err = RetryableStepError if exc.retryable else NonRetryableStepError
+        raise err(exc.code, exc.message) from None
     time.sleep(0.1 / ctx.speed)
     ctx.progress(1, 2, "写规划")
     out = ctx.work_dir / "motion_plan.json"
@@ -369,7 +402,13 @@ def step_stylize_frames(ctx: StepContext) -> list:
     for a in ctx.upstream.get("plan_motion", {}).get("artifacts", []):
         if a["kind"] == "motion_plan":
             plan_path = Path(a["absolute_path"])
-    plan = read_json(plan_path) if plan_path and plan_path.is_file() else {}
+    if not plan_path or not plan_path.is_file():
+        raise NonRetryableStepError("BAD_OUTPUT", "缺少已发布的动作规划")
+    plan = read_json(plan_path)
+    try:
+        MotionPlan.model_validate({k: plan[k] for k in MotionPlan.model_fields})
+    except (ValueError, KeyError):
+        raise NonRetryableStepError("BAD_OUTPUT", "动作规划不符合渲染契约") from None
     ctx.progress(0, len(src_files), "准备风格化（模拟 GPU）")
     styled_dir = ctx.work_dir / "styled"
     styled_dir.mkdir(parents=True, exist_ok=True)
@@ -380,6 +419,7 @@ def step_stylize_frames(ctx: StepContext) -> list:
         ctx.check_parent()
         img = Image.open(src).convert("RGB")
         img = _stylize_image(img, p["style"], p["seed"], i)
+        img = apply_motion_plan(img, plan, i, len(src_files))
         fp = styled_dir / f"s{i:04d}.png"
         tmp = fp.with_name(fp.name + f".tmp-{os.getpid()}")
         img.save(tmp, format="PNG")
@@ -394,7 +434,7 @@ def step_stylize_frames(ctx: StepContext) -> list:
         time.sleep(0.08 / ctx.speed)
     manifest = {
         "type": "styled_frames", "count": len(file_entries),
-        "files": file_entries, "applied_plan": plan.get("easing"),
+        "files": file_entries, "applied_plan": plan,
     }
     atomic_write_json(ctx.work_dir / "styled_manifest.json", manifest)
     ctx.slow_extra()
@@ -458,8 +498,8 @@ def step_package_artifact(ctx: StepContext) -> list:
             json.dumps(
                 {
                     "job_id": ctx.job_id,
-                    "pipeline": "demo_asset_pipeline@1.0.0",
-                    "asset_source": "demo_asset_v1（程序生成，AI/GPU 为模拟计算）",
+                    "pipeline": "demo_asset_pipeline@" + str(ctx.payload.get("pipeline_version", "unknown")),
+                    "asset_source": "程序生成素材；动作规划模式=" + p.get("planner_mode", "mock") + "；GPU 为模拟槽位",
                     "steps": ["inspect_asset", "extract_frames", "plan_motion",
                               "stylize_frames", "render_preview", "package_artifact"],
                 },
@@ -468,7 +508,8 @@ def step_package_artifact(ctx: StepContext) -> list:
         )
         zf.writestr(
             "README.txt",
-            "AnimFlow 演示产物：preview.gif 可直接播放；素材由程序生成，AI/GPU 为模拟计算。\n",
+            "AnimFlow：素材由程序生成，Pillow 渲染 GIF；动作规划模式="
+            + p.get("planner_mode", "mock") + "；GPU 为模拟槽位。\n",
         )
     os.replace(tmp, out)
     ctx.progress(2, 3, "校验 ZIP")
