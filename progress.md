@@ -113,3 +113,5 @@
 - 脚本及依赖：scripts/record_video.py、requirements-recording.txt；本次实际运行 exit 0。
 - 本机交付：deliverables/AnimFlow-demo.mp4；资料清单和字幕提纲同目录；视频目录被忽略，不混入源码。
 - 证据：docs/evidence/video-2026-11-01.json。用户个人信息/工时/简历仍待本人补齐；未发邮件。
+
+- 录制里程碑提交：`ed9bb5d`；验证命令 `python scripts/record_video.py`（成功）、FFmpeg 全段解码（成功）。
