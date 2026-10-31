@@ -42,3 +42,6 @@ cd D:\AnimFlow
 
 本机另外提供 `deliverables/提交前核对.md` 和 `deliverables/视频字幕提纲.md`。
 成片未上传外部视频平台、未发送邮件；可由本人作为附件提交。
+
+用户随后授权将成片一并提交仓库：`docs/assets/AnimFlow-demo.mp4` 与本机附件副本逐字节 SHA-256 一致，
+可从 GitHub 文件页下载原始 MP4。上文 `deliverables/` 仍被忽略，只有这一份明确指定的成片加入公开源码仓库。

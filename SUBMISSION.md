@@ -1,6 +1,7 @@
 # 题 D：可观测、可恢复的动画素材处理管线
 
 源码：https://github.com/tangfire/AnimFlow
+演示视频：[MP4，3 分 26 秒，中文字幕、无旁白](https://github.com/tangfire/AnimFlow/blob/main/docs/assets/AnimFlow-demo.mp4)（文件页可下载原始视频）。
 在线演示：（未部署公网；本地 `http://127.0.0.1:8000/`，不作为公网 URL）
 运行与验收：[README.md](README.md)、[测试报告](docs/test-report.md)
 
@@ -124,7 +125,7 @@ P0 仅步骤边界恢复，无分帧 checkpoint；无跨任务缓存；无登录
 
 - 公开源码：https://github.com/tangfire/AnimFlow
 - 简要说明：仓库内 [SUBMISSION.md](SUBMISSION.md)
-- 在线演示：（如有公网地址再填）
+- 演示视频：https://github.com/tangfire/AnimFlow/blob/main/docs/assets/AnimFlow-demo.mp4 （也可附 MP4 文件）
 - 简历：见附件 [本人确认的文件名]
 
 姓名：[本人填写]

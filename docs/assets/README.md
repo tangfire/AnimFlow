@@ -13,3 +13,7 @@ Pillow 按规划渲染。`deepseek-dashboard.png` 是 `scripts/browser_live_chec
 `deepseek-bounce-demo.gif` 是第二个真实请求的对照产物（任务 `80378daa621348b098fae804eaf1f219`），
 橙色光球/金色光环/深紫背景、motion=bounce，36 帧 12fps；来自 `scripts/live_demo.py --data-dir data/deepseek-contrast --brief ...`。
 用量与来源见 `docs/evidence/deepseek-contrast-2026-11-01.json`。
+
+`AnimFlow-demo.mp4` 是 2026-11-01 使用 `scripts/record_video.py` 录制并完整解码校验的提交演示视频，
+206.08 秒、1600×900、H.264、中文字幕、无音轨，7,244,956 字节。与本机 deliverables 成片 SHA-256 一致。
+录制边界见 `docs/video.md`，执行与校验证据见 `docs/evidence/video-2026-11-01.json`。

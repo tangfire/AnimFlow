@@ -115,3 +115,9 @@
 - 证据：docs/evidence/video-2026-11-01.json。用户个人信息/工时/简历仍待本人补齐；未发邮件。
 
 - 录制里程碑提交：`ed9bb5d`；验证命令 `python scripts/record_video.py`（成功）、FFmpeg 全段解码（成功）。
+
+## 2026-11-01 用户要求视频一并推送仓库
+
+- 将已验证的本机 MP4 复制至 docs/assets/AnimFlow-demo.mp4，SHA-256 对比一致；不重录、不改视频内容。
+- README、SUBMISSION、视频文档补公开仓库视频链接；.env 和其余本机附件仍被忽略。
+- 题 D 技术实现与演示材料已具备；个人身份/工时/AI使用说明与简历仍待本人完成，未发送邮件。
